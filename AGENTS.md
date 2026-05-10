@@ -1,0 +1,65 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+Anchor-based Solana program named `fund`. Single on-chain program, Cargo workspace, with a TypeScript app/migrations side managed via bun.
+
+- Program ID: `5nNVyzESLk4QNQh7HgxAAwFmHnN37WUz1aCttBLwFo2e` (declared both in `programs/fund/src/lib.rs` and `Anchor.toml`'s `[programs.localnet]` — keep in sync)
+- Anchor toolchain: `package_manager = "bun"` (not yarn/npm)
+- Rust toolchain pinned via `rust-toolchain.toml` (1.89.0)
+- Dev shell provided by Nix flake + devenv (`flake.nix`); `.envrc` loads it via direnv
+
+## Common commands
+
+```bash
+# Build the on-chain program (.so artifact under target/deploy/)
+anchor build
+
+# Run all Rust tests (also configured as Anchor.toml's test script)
+cargo test
+
+# Run a single test
+cargo test --package fund --test test_initialize -- test_initialize --exact
+
+# Lint / format JS/TS
+bun run lint
+bun run lint:fix
+
+# Nix dev shell (auto-loaded via direnv)
+nix develop
+```
+
+Pre-commit hooks (via `git-hooks.nix`) run `nixfmt-classic`, `nil`, `cargo fmt`, `prettier`, and `taplo`. Run `nix flake check` to invoke them outside a commit.
+
+## Test architecture (important)
+
+Tests do **not** use `anchor test`. They use [`litesvm`](https://docs.rs/litesvm) directly from Rust integration tests under `programs/fund/tests/`.
+
+The pattern (`tests/test_initialize.rs`):
+
+1. `include_bytes!("../../../target/deploy/fund.so")` — pulls the compiled BPF binary at compile time.
+2. `LiteSVM::new()` + `svm.add_program(program_id, bytes)` — loads it into an in-memory SVM.
+3. Construct an `Instruction` using the Anchor-generated `fund::instruction::*` (data) and `fund::accounts::*` (account metas) types, then send a `VersionedTransaction`.
+
+**Consequence: `anchor build` must run before `cargo test`.** Without `target/deploy/fund.so`, the integration test fails to compile. CI/local workflows should chain build → test.
+
+## Code layout
+
+`programs/fund/src/`:
+
+- `lib.rs` — `declare_id!` and the `#[program] mod fund { ... }` block. Each public program function is a thin delegate to `instructions::<name>::handler`.
+- `instructions/` + `instructions.rs` — one file per instruction; the parent module re-exports with `pub use <name>::*` so `Initialize` (account context) and `handler` are reachable as `fund::Initialize` / `fund::initialize::handler`.
+- `state.rs` — account state structs (currently empty).
+- `constants.rs`, `error.rs` — shared constants and `#[error_code]` enums.
+
+When adding a new instruction:
+
+1. Create `programs/fund/src/instructions/<name>.rs` with `#[derive(Accounts)] pub struct <Name>` and `pub fn handler(...)`.
+2. Add `pub mod <name>; pub use <name>::*;` to `instructions.rs`.
+3. Add a thin wrapper inside `#[program] mod fund` in `lib.rs` that calls `<name>::handler(ctx, ...)`.
+
+## Wallet / cluster
+
+`Anchor.toml` points provider at `localnet` with wallet `~/.config/solana/id.json`. `litesvm` tests don't touch this — only `anchor deploy` / `anchor migrate` / on-chain interactions do.

@@ -7,3 +7,5 @@ test-ledger
 .yarn
 .surfpool
 .direnv/
+.devenv/
+.pre-commit-config.yaml
