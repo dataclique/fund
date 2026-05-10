@@ -3,7 +3,7 @@
 {
   # Nix
   nil.enable = true;
-  nixfmt-classic.enable = true;
+  nixfmt.enable = true;
 
   # Rust
   rustfmt = {

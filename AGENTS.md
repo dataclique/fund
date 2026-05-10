@@ -31,7 +31,7 @@ bun run lint:fix
 nix develop
 ```
 
-Pre-commit hooks (via `git-hooks.nix`) run `nixfmt-classic`, `nil`, `cargo fmt`, `prettier`, and `taplo`. Run `nix flake check` to invoke them outside a commit.
+Pre-commit hooks (via `git-hooks.nix`) run `nixfmt`, `nil`, `cargo fmt`, `prettier`, and `taplo`. Run `nix flake check` to invoke them outside a commit.
 
 ## Test architecture (important)
 
@@ -63,3 +63,7 @@ When adding a new instruction:
 ## Wallet / cluster
 
 `Anchor.toml` points provider at `localnet` with wallet `~/.config/solana/id.json`. `litesvm` tests don't touch this — only `anchor deploy` / `anchor migrate` / on-chain interactions do.
+
+## Security
+
+Every new instruction must be reviewed against the Solana/Anchor attack catalogue in @docs/sealevel-attacks.md before merging. Treat the checklist at the bottom of that document as a hard gate — each `#[derive(Accounts)]` struct should be walked through it explicitly.
