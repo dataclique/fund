@@ -1,0 +1,120 @@
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    flake-utils.url = "github:numtide/flake-utils";
+
+    git-hooks.url = "github:cachix/git-hooks.nix";
+    git-hooks.inputs.nixpkgs.follows = "nixpkgs";
+
+    devenv.url = "github:cachix/devenv";
+    devenv.inputs = {
+      nixpkgs.follows = "nixpkgs";
+      git-hooks.follows = "git-hooks";
+    };
+
+    rust-overlay.url = "github:oxalica/rust-overlay";
+    rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      git-hooks,
+      devenv,
+      rust-overlay,
+      ...
+    }@inputs:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ rust-overlay.overlays.default ];
+        };
+
+        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+
+        hooks = {
+          # Nix
+          nil.enable = true;
+          nixfmt-classic.enable = true;
+
+          # Rust
+          rustfmt = {
+            enable = true;
+            entry = "${rustToolchain}/bin/cargo fmt --";
+            files = "\\.rs$";
+            pass_filenames = true;
+          };
+
+          # TypeScript / JS / JSON
+          prettier = {
+            enable = true;
+            excludes = [ "\\.md$" ];
+          };
+
+          # TOML
+          taplo.enable = true;
+        };
+
+        devShell = devenv.lib.mkShell {
+          inherit inputs pkgs;
+          modules = [
+            {
+              packages = with pkgs; [
+                pkg-config
+                openssl
+              ];
+
+              languages = {
+                nix.enable = true;
+                javascript = {
+                  enable = true;
+                  bun = {
+                    enable = true;
+                    install.enable = true;
+                  };
+                };
+                rust = {
+                  enable = true;
+                  toolchain.rustc = rustToolchain;
+                  toolchain.cargo = rustToolchain;
+                  toolchain.rustfmt = rustToolchain;
+                  toolchain.clippy = rustToolchain;
+                };
+              };
+
+              git-hooks = { inherit hooks; };
+
+              difftastic.enable = true;
+              cachix.enable = true;
+            }
+          ];
+        };
+      in
+      {
+        devShells.default = devShell;
+
+        checks = {
+          git-hooks = git-hooks.lib.${system}.run {
+            inherit hooks;
+            src = self;
+          };
+        };
+      }
+    );
+
+  nixConfig = {
+    extra-substituters = [
+      "https://devenv.cachix.org"
+      "https://nix-community.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw="
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+    ];
+    allow-unfree = true;
+  };
+}
