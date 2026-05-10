@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
 
     git-hooks.url = "github:cachix/git-hooks.nix";
@@ -17,85 +17,49 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      flake-utils,
-      git-hooks,
-      devenv,
-      rust-overlay,
-      ...
-    }@inputs:
-    flake-utils.lib.eachDefaultSystem (
-      system:
+    { self, nixpkgs, flake-utils, git-hooks, devenv, rust-overlay, ... }@inputs:
+    flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ rust-overlay.overlays.default ];
         };
 
-        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        rustToolchain =
+          pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
-        hooks = {
-          # Nix
-          nil.enable = true;
-          nixfmt-classic.enable = true;
+        hooks = import ./hooks.nix { inherit rustToolchain; };
 
-          # Rust
-          rustfmt = {
-            enable = true;
-            entry = "${rustToolchain}/bin/cargo fmt --";
-            files = "\\.rs$";
-            pass_filenames = true;
-          };
-
-          # TypeScript / JS / JSON
-          prettier = {
-            enable = true;
-            excludes = [ "\\.md$" ];
-          };
-
-          # TOML
-          taplo.enable = true;
-        };
-
-        devShell = devenv.lib.mkShell {
+      in {
+        devShells.default = devenv.lib.mkShell {
           inherit inputs pkgs;
-          modules = [
-            {
-              packages = with pkgs; [
-                pkg-config
-                openssl
-              ];
+          modules = [{
+            packages = with pkgs; [ pkg-config openssl ];
 
-              languages = {
-                nix.enable = true;
-                javascript = {
+            languages = {
+              nix.enable = true;
+              javascript = {
+                enable = true;
+                bun = {
                   enable = true;
-                  bun = {
-                    enable = true;
-                    install.enable = true;
-                  };
-                };
-                rust = {
-                  enable = true;
-                  toolchain.rustc = rustToolchain;
-                  toolchain.cargo = rustToolchain;
-                  toolchain.rustfmt = rustToolchain;
-                  toolchain.clippy = rustToolchain;
+                  install.enable = true;
                 };
               };
+              rust = {
+                enable = true;
+                toolchain.rustc = rustToolchain;
+                toolchain.cargo = rustToolchain;
+                toolchain.rustfmt = rustToolchain;
+                toolchain.clippy = rustToolchain;
+              };
+            };
 
-              git-hooks = { inherit hooks; };
+            git-hooks = { inherit hooks; };
 
-              difftastic.enable = true;
-              cachix.enable = true;
-            }
-          ];
+            difftastic.enable = true;
+            cachix.enable = true;
+          }];
         };
-      in
-      {
-        devShells.default = devShell;
 
         checks = {
           git-hooks = git-hooks.lib.${system}.run {
@@ -103,14 +67,11 @@
             src = self;
           };
         };
-      }
-    );
+      });
 
   nixConfig = {
-    extra-substituters = [
-      "https://devenv.cachix.org"
-      "https://nix-community.cachix.org"
-    ];
+    extra-substituters =
+      [ "https://devenv.cachix.org" "https://nix-community.cachix.org" ];
     extra-trusted-public-keys = [
       "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw="
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
