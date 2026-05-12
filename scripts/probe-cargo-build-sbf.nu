@@ -31,10 +31,10 @@ def --wrapped main [
   --sbf-home: string = ".devenv/sbf-home"   # where the wrapper materializes platform-tools
   ...args: string
 ] {
-  let tmp = ".tmp"
+  let tmp = (pwd | path join ".tmp")
   mkdir $tmp
-  let shim_log = ([$tmp "rustc-shim.log"] | path join)
-  let sbf_log = ([$tmp "cargo-build-sbf.log"] | path join)
+  let shim_log = ($tmp | path join "rustc-shim.log")
+  let sbf_log = ($tmp | path join "cargo-build-sbf.log")
   for f in [$shim_log $sbf_log] {
     if ($f | path exists) { rm $f }
   }

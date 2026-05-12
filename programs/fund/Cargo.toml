@@ -3,6 +3,7 @@ name = "fund"
 version = "0.1.0"
 description = "Created with Anchor"
 edition = "2021"
+rust-version.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -21,14 +22,11 @@ custom-panic = []
 
 
 [dependencies]
-anchor-lang = "1.0.2"
+anchor-lang = "0.31"
 
 [dev-dependencies]
-litesvm = "0.10.0"
-solana-message = "3.0.1"
-solana-transaction = "3.0.2"
-solana-signer = "3.0.0"
-solana-keypair = "3.0.1"
+litesvm = "0.6"
+solana-sdk = "2"
 
 
 [lints.rust]

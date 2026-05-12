@@ -16,6 +16,7 @@ def main [
   --manifest-path: string = "programs/fund/Cargo.toml"
   --sbf-home: string = ".devenv/sbf-home"
   --tools-version: string = "1.51"
+  --pin: string = ""                # comma-separated `name@version` list forwarded to `cargo update --precise`
 ] {
   let cache_dir = ($sbf_home | path join ".cache" "solana" $"v($tools_version)" "platform-tools")
   let bin_dir = ($cache_dir | path join "rust" "bin")
@@ -27,8 +28,19 @@ def main [
     rm Cargo.lock
   }
   print "regenerating Cargo.lock with platform-tools cargo"
+  let pins = if ($pin == "") { [] } else { $pin | split row "," }
   with-env { HOME: $sbf_home, PATH: $"($bin_dir):($env.PATH)" } {
     ^cargo generate-lockfile --manifest-path $manifest_path
+    for entry in $pins {
+      let parts = ($entry | split row "@")
+      if (($parts | length) != 2) {
+        error make { msg: $"--pin expects name@version, got ($entry)" }
+      }
+      let name = ($parts | first)
+      let version = ($parts | get 1)
+      print $"pinning ($name) to ($version)"
+      ^cargo update --manifest-path $manifest_path --package $name --precise $version
+    }
   }
   print "done"
 }

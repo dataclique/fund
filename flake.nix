@@ -99,12 +99,19 @@
           else
             pkgs.writeShellApplication {
               name = "cargo-build-sbf";
-              runtimeInputs = [ pkgs.nushell ];
+              runtimeInputs = [
+                pkgs.nushell
+                # Host build scripts (rustc → `cc`) need a wrapped C
+                # compiler on PATH. `stdenv.cc` provides `cc` / `clang` /
+                # the right linker flags for the current platform.
+                pkgs.stdenv.cc
+              ];
               text = ''
                 export CARGO_BUILD_SBF_REAL_BIN="${pkgs.solana-cli}/bin/cargo-build-sbf"
                 export CARGO_BUILD_SBF_HOME="''${DEVENV_ROOT:-$PWD}/.devenv/sbf-home"
                 export CARGO_BUILD_SBF_PLATFORM_TOOLS="${platformTools}"
                 export CARGO_BUILD_SBF_PLATFORM_TOOLS_VERSION="${platformToolsVersion}"
+                export CARGO_BUILD_SBF_SOURCE_SDK="${pkgs.solana-cli}/bin/platform-tools-sdk/sbf"
                 exec nu ${sbfScripts}/libexec/cargo-build-sbf.nu "$@"
               '';
             };

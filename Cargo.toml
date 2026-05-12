@@ -1,6 +1,9 @@
 [workspace]
 members = ["programs/*"]
-resolver = "2"
+resolver = "3"
+
+[workspace.package]
+rust-version = "1.84.0"
 
 [profile.release]
 overflow-checks = true

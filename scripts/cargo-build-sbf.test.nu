@@ -206,6 +206,75 @@ echo 'rustc 1.89.0-dev'"
   rm -rf $tmp
 }
 
+# ensure-sbf-sdk must produce a writable copy of the upstream SDK with the
+# dependencies/ tree pre-populated so the SDK's install.sh skips every
+# download path.
+def test_ensure_sbf_sdk_populates_dependencies [] {
+  let tmp = (mktemp -d)
+  # Fake "upstream" SDK with scripts/install.sh, scripts/strip.sh, env.sh.
+  let src = ($tmp | path join "src-sdk")
+  mkdir ($src | path join "scripts")
+  "#!/usr/bin/env bash
+echo install" | save ($src | path join "scripts" "install.sh")
+  "#!/usr/bin/env bash
+echo strip" | save ($src | path join "scripts" "strip.sh")
+  "echo env"     | save ($src | path join "env.sh")
+  # Fake platform-tools tree (any non-empty dir will do for symlink target).
+  let pt = ($tmp | path join "pt")
+  mkdir ($pt | path join "rust" "bin")
+  "rustc"        | save ($pt | path join "rust" "bin" "rustc")
+  # Destination must NOT exist beforehand; ensure-sbf-sdk creates it.
+  let dest = ($tmp | path join "out-sdk")
+
+  ensure-sbf-sdk $src $dest $pt "1.51"
+
+  assert ($dest | path exists)
+  # SDK contents copied.
+  assert ($dest | path join "env.sh" | path exists)
+  # dependencies/ subtree pre-populated.
+  let deps = ($dest | path join "dependencies")
+  assert ($deps | path join "platform-tools" | path exists)
+  assert equal (readlink ($deps | path join "platform-tools") | str trim) $pt
+  assert ($deps | path join "platform-tools-v1.51.md" | path exists)
+  assert ($deps | path join "criterion" | path exists)
+  assert ($deps | path join "criterion-v2.3.2.md" | path exists)
+  assert ($deps | path join "criterion-v2.3.3.md" | path exists)
+  # Shebangs in scripts/*.sh must be patched away from `/usr/bin/env bash`
+  # and a PATH= line must be injected so coreutils are visible when
+  # cargo-build-sbf spawns them with an empty environment.
+  let install_lines = (open --raw ($dest | path join "scripts" "install.sh") | lines)
+  assert equal ($install_lines | first) "#!/bin/bash"
+  assert ($install_lines | get 1 | str starts-with "export PATH=")
+  let strip_lines = (open --raw ($dest | path join "scripts" "strip.sh") | lines)
+  assert equal ($strip_lines | first) "#!/bin/bash"
+  assert ($strip_lines | get 1 | str starts-with "export PATH=")
+
+  rm -rf $tmp
+}
+
+def test_ensure_sbf_sdk_repopulates_when_source_changes [] {
+  let tmp = (mktemp -d)
+  let src_a = ($tmp | path join "a")
+  let src_b = ($tmp | path join "b")
+  mkdir ($src_a | path join "scripts")
+  mkdir ($src_b | path join "scripts")
+  "A" | save ($src_a | path join "marker")
+  "B" | save ($src_b | path join "marker")
+  let pt = ($tmp | path join "pt")
+  mkdir $pt
+  let dest = ($tmp | path join "dest-sdk")
+
+  ensure-sbf-sdk $src_a $dest $pt "1.51"
+  let first = (open --raw ($dest | path join "marker") | str trim)
+  assert equal $first "A"
+
+  ensure-sbf-sdk $src_b $dest $pt "1.51"
+  let second = (open --raw ($dest | path join "marker") | str trim)
+  assert equal $second "B"
+
+  rm -rf $tmp
+}
+
 def main [] {
   test_strip_build_sbf_drops_leading_subcommand
   test_strip_build_sbf_passes_through_when_absent
@@ -220,5 +289,7 @@ def main [] {
   test_shim_forwards_other_args
   test_shim_works_with_stripped_path
   test_shim_idempotent_install
+  test_ensure_sbf_sdk_populates_dependencies
+  test_ensure_sbf_sdk_repopulates_when_source_changes
   print "cargo-build-sbf.test.nu: all tests passed"
 }

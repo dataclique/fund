@@ -1,10 +1,11 @@
 use {
     anchor_lang::{solana_program::instruction::Instruction, InstructionData, ToAccountMetas},
     litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_message::{Message, VersionedMessage},
-    solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
+    solana_sdk::{
+        message::{Message, VersionedMessage},
+        signature::{Keypair, Signer},
+        transaction::VersionedTransaction,
+    },
 };
 
 #[test]
@@ -13,7 +14,7 @@ fn test_initialize() {
     let payer = Keypair::new();
     let mut svm = LiteSVM::new();
     let bytes = include_bytes!("../../../target/deploy/fund.so");
-    svm.add_program(program_id, bytes).unwrap();
+    svm.add_program(program_id, bytes);
     svm.airdrop(&payer.pubkey(), 1_000_000_000).unwrap();
 
     let instruction = Instruction::new_with_bytes(
