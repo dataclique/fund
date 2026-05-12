@@ -38,28 +38,125 @@
 
         hooks = import ./hooks.nix { inherit rustToolchain; };
 
-        cargoBuildSbfScript = pkgs.stdenv.mkDerivation {
-          pname = "cargo-build-sbf-script";
+        # cargo-build-sbf from `solana-cli` 3.0.12 is hardcoded against
+        # platform-tools v1.51 (rustc 1.84.1) — newer versions trip an
+        # internal toolchain-version assertion and fail with "Solana
+        # toolchain is corrupted". See `AGENTS.md` for details.
+        platformToolsVersion = "1.51";
+        platformToolsAssets = {
+          "aarch64-darwin" = {
+            name = "platform-tools-osx-aarch64.tar.bz2";
+            sha256 = "1cvcdrx5y9ldiprpj4nggb9dnaqjq0zc90fsfvx9k0gy6wqjpqx1";
+          };
+        };
+        platformToolsAsset = platformToolsAssets.${system} or null;
+        platformTools =
+          if platformToolsAsset == null then
+            null
+          else
+            pkgs.runCommandLocal "solana-platform-tools-v${platformToolsVersion}"
+              {
+                src = pkgs.fetchurl {
+                  url = "https://github.com/anza-xyz/platform-tools/releases/download/v${platformToolsVersion}/${platformToolsAsset.name}";
+                  inherit (platformToolsAsset) sha256;
+                };
+                nativeBuildInputs = [
+                  pkgs.gnutar
+                  pkgs.bzip2
+                ];
+              }
+              ''
+                mkdir -p $out
+                tar -xjf $src -C $out
+              '';
+
+        # Ships all `./scripts/*.nu` files to `$out/libexec/` after running
+        # each `*.test.nu` in checkPhase. Used by the cargo-build-sbf wrapper
+        # and by the probe scripts below.
+        sbfScripts = pkgs.stdenv.mkDerivation {
+          pname = "fund-sbf-scripts";
           version = "0.1.0";
           src = ./scripts;
           nativeBuildInputs = [ pkgs.nushell ];
           doCheck = true;
-          checkPhase = "nu cargo-build-sbf.test.nu";
+          checkPhase = ''
+            for t in ./*.test.nu; do
+              echo "running $t"
+              nu "$t"
+            done
+          '';
           installPhase = ''
             mkdir -p $out/libexec
-            cp cargo-build-sbf.nu $out/libexec/
+            for f in ./*.nu; do
+              cp "$f" $out/libexec/
+            done
           '';
         };
 
-        cargoBuildSbfWrapper = pkgs.writeShellApplication {
-          name = "cargo-build-sbf";
-          runtimeInputs = [ pkgs.nushell ];
-          text = ''
-            export CARGO_BUILD_SBF_REAL_BIN="${pkgs.solana-cli}/bin/cargo-build-sbf"
-            export CARGO_BUILD_SBF_HOME="''${DEVENV_ROOT:-$PWD}/.devenv/sbf-home"
-            exec nu ${cargoBuildSbfScript}/libexec/cargo-build-sbf.nu "$@"
-          '';
-        };
+        cargoBuildSbfWrapper =
+          if platformTools == null then
+            null
+          else
+            pkgs.writeShellApplication {
+              name = "cargo-build-sbf";
+              runtimeInputs = [ pkgs.nushell ];
+              text = ''
+                export CARGO_BUILD_SBF_REAL_BIN="${pkgs.solana-cli}/bin/cargo-build-sbf"
+                export CARGO_BUILD_SBF_HOME="''${DEVENV_ROOT:-$PWD}/.devenv/sbf-home"
+                export CARGO_BUILD_SBF_PLATFORM_TOOLS="${platformTools}"
+                export CARGO_BUILD_SBF_PLATFORM_TOOLS_VERSION="${platformToolsVersion}"
+                exec nu ${sbfScripts}/libexec/cargo-build-sbf.nu "$@"
+              '';
+            };
+
+        # Diagnostic probes. Both are real derivations exposed on the dev
+        # shell PATH so you can run e.g. `probe-cargo-build-sbf --clean
+        # --manifest-path programs/fund/Cargo.toml` directly — no need for
+        # `nix develop --impure -- nu …`.
+        probeCargoBuildSbf =
+          if cargoBuildSbfWrapper == null then
+            null
+          else
+            pkgs.writeShellApplication {
+              name = "probe-cargo-build-sbf";
+              runtimeInputs = [
+                pkgs.nushell
+                cargoBuildSbfWrapper
+              ];
+              text = ''
+                exec nu ${sbfScripts}/libexec/probe-cargo-build-sbf.nu "$@"
+              '';
+            };
+
+        probeRustcShim =
+          if cargoBuildSbfWrapper == null then
+            null
+          else
+            pkgs.writeShellApplication {
+              name = "probe-rustc-shim";
+              runtimeInputs = [
+                pkgs.nushell
+                cargoBuildSbfWrapper
+              ];
+              text = ''
+                exec nu ${sbfScripts}/libexec/probe-rustc-shim.nu "$@"
+              '';
+            };
+
+        regenerateCargoLockSbf =
+          if cargoBuildSbfWrapper == null then
+            null
+          else
+            pkgs.writeShellApplication {
+              name = "regenerate-cargo-lock-sbf";
+              runtimeInputs = [
+                pkgs.nushell
+                cargoBuildSbfWrapper
+              ];
+              text = ''
+                exec nu ${sbfScripts}/libexec/regenerate-cargo-lock-sbf.nu "$@"
+              '';
+            };
 
       in
       {
@@ -67,16 +164,18 @@
           inherit inputs pkgs;
           modules = [
             {
-              packages = [
-                cargoBuildSbfWrapper
-              ]
-              ++ (with pkgs; [
-                anchor
-                solana-cli
-                pkg-config
-                openssl
-                nushell
-              ]);
+              packages =
+                pkgs.lib.optional (cargoBuildSbfWrapper != null) cargoBuildSbfWrapper
+                ++ pkgs.lib.optional (probeCargoBuildSbf != null) probeCargoBuildSbf
+                ++ pkgs.lib.optional (probeRustcShim != null) probeRustcShim
+                ++ pkgs.lib.optional (regenerateCargoLockSbf != null) regenerateCargoLockSbf
+                ++ (with pkgs; [
+                  anchor
+                  solana-cli
+                  pkg-config
+                  openssl
+                  nushell
+                ]);
 
               languages = {
                 nix.enable = true;
@@ -112,7 +211,26 @@
             inherit hooks;
             src = self;
           };
-          inherit cargoBuildSbfScript;
+          inherit sbfScripts;
+        };
+
+        # Diagnostic probes exposed as flake apps so they can be invoked
+        # from outside the dev shell:
+        #   nix run .#probe-cargo-build-sbf -- --clean --manifest-path …
+        #   nix run .#probe-rustc-shim -- --tools-version 1.51
+        apps = pkgs.lib.optionalAttrs (cargoBuildSbfWrapper != null) {
+          probe-cargo-build-sbf = {
+            type = "app";
+            program = "${probeCargoBuildSbf}/bin/probe-cargo-build-sbf";
+          };
+          probe-rustc-shim = {
+            type = "app";
+            program = "${probeRustcShim}/bin/probe-rustc-shim";
+          };
+          regenerate-cargo-lock-sbf = {
+            type = "app";
+            program = "${regenerateCargoLockSbf}/bin/regenerate-cargo-lock-sbf";
+          };
         };
       }
     );
