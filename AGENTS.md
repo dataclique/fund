@@ -6,10 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Anchor-based Solana program named `fund`. Single on-chain program, Cargo workspace, with a TypeScript app/migrations side managed via bun.
 
+This repo is split off from the main monorepo specifically because Solana tooling isn't compatible with everything we use over there. The standing rule that follows from that: **always succumb to whatever Solana tooling wants from us.** Match its version pins, directory layout, env-var conventions, and config defaults rather than fighting them — concretely, if `cargo-build-sbf` expects platform-tools at `~/.cache/solana/v<X>/`, pin v<X> in the flake; don't pick a different version and try to make Solana like it.
+
 - Program ID: `5nNVyzESLk4QNQh7HgxAAwFmHnN37WUz1aCttBLwFo2e` (declared both in `programs/fund/src/lib.rs` and `Anchor.toml`'s `[programs.localnet]` — keep in sync)
 - Anchor toolchain: `package_manager = "bun"` (not yarn/npm)
-- Rust toolchain pinned via `rust-toolchain.toml` (1.89.0)
+- Rust toolchain pinned via `rust-toolchain.toml` (1.95.0)
 - Dev shell provided by Nix flake + devenv (`flake.nix`); `.envrc` loads it via direnv
+- `flake.nix` exposes a `cargo-build-sbf` shim that pre-fetches Solana platform-tools (version pinned to match what `solana-cli` from nixpkgs expects) and symlinks them into `.devenv/sbf-home/.cache/solana/v<X>/platform-tools` so `anchor build` runs offline (currently `aarch64-darwin` only)
 
 ## Common commands
 

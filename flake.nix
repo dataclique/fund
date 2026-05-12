@@ -38,17 +38,45 @@
 
         hooks = import ./hooks.nix { inherit rustToolchain; };
 
+        cargoBuildSbfScript = pkgs.stdenv.mkDerivation {
+          pname = "cargo-build-sbf-script";
+          version = "0.1.0";
+          src = ./scripts;
+          nativeBuildInputs = [ pkgs.nushell ];
+          doCheck = true;
+          checkPhase = "nu cargo-build-sbf.test.nu";
+          installPhase = ''
+            mkdir -p $out/libexec
+            cp cargo-build-sbf.nu $out/libexec/
+          '';
+        };
+
+        cargoBuildSbfWrapper = pkgs.writeShellApplication {
+          name = "cargo-build-sbf";
+          runtimeInputs = [ pkgs.nushell ];
+          text = ''
+            export CARGO_BUILD_SBF_REAL_BIN="${pkgs.solana-cli}/bin/cargo-build-sbf"
+            export CARGO_BUILD_SBF_HOME="''${DEVENV_ROOT:-$PWD}/.devenv/sbf-home"
+            exec nu ${cargoBuildSbfScript}/libexec/cargo-build-sbf.nu "$@"
+          '';
+        };
+
       in
       {
         devShells.default = devenv.lib.mkShell {
           inherit inputs pkgs;
           modules = [
             {
-              packages = with pkgs; [
+              packages = [
+                cargoBuildSbfWrapper
+              ]
+              ++ (with pkgs; [
                 anchor
+                solana-cli
                 pkg-config
                 openssl
-              ];
+                nushell
+              ]);
 
               languages = {
                 nix.enable = true;
@@ -59,12 +87,15 @@
                     install.enable = true;
                   };
                 };
+
                 rust = {
                   enable = true;
-                  toolchain.rustc = rustToolchain;
-                  toolchain.cargo = rustToolchain;
-                  toolchain.rustfmt = rustToolchain;
-                  toolchain.clippy = rustToolchain;
+                  toolchain = {
+                    rustc = rustToolchain;
+                    cargo = rustToolchain;
+                    rustfmt = rustToolchain;
+                    clippy = rustToolchain;
+                  };
                 };
               };
 
@@ -81,6 +112,7 @@
             inherit hooks;
             src = self;
           };
+          inherit cargoBuildSbfScript;
         };
       }
     );

@@ -4,13 +4,14 @@
   # Nix
   nil.enable = true;
   nixfmt.enable = true;
+  statix.enable = true;
+  deadnix.enable = true;
 
   # Rust
   rustfmt = {
     enable = true;
-    entry = "${rustToolchain}/bin/cargo fmt --";
+    entry = "${rustToolchain}/bin/cargo fmt";
     files = "\\.rs$";
-    pass_filenames = true;
   };
 
   # TypeScript / JS / JSON
