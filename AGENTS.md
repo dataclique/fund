@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **"Document" always means in this repo.** Notes, learnings, conventions,
   rationale, and rules belong in tracked markdown files (this file,
-  `programs/fund/README.md`, ADRs under `adrs/`, or a dedicated doc). Agent
-  memory, scratchpads, or `.tmp/` files do **not** count as documentation —
-  the next reader (human or agent) will not see them.
+  `programs/fund/README.md`, `programs/fund/SPEC.md`, ADRs under `adrs/`, or
+  a dedicated doc). Agent memory, scratchpads, or `.tmp/` files do **not**
+  count as documentation — the next reader (human or agent) will not see
+  them.
 - **Non-trivial shell logic lives in `./scripts/<name>.nu` with a paired
   `./scripts/<name>.test.nu`.** "Non-trivial" is anything beyond ~3 lines, any
   command with non-obvious quoting/escaping, or any one-shot probe that might
@@ -16,6 +17,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   derivation (`checkPhase`) so a broken script fails the build. Do not write
   inline bash inside `flake.nix` strings or as `Bash` tool commands for
   anything more than read-only one-liners (`ls`, `git status`, `cargo check`).
+
+## Feature workflow
+
+Every new feature of the on-chain program follows the same loop. Do not
+skip steps or merge phases — each step exists to catch a different class
+of mistake.
+
+1. **Spec the feature in `programs/fund/SPEC.md`.** Add a new section
+   describing the model, instruction signature(s), accounts touched,
+   error conditions, and a mermaid sequence diagram. Keep the spec
+   incremental — only introduce concepts the current feature needs;
+   list everything else under "Not yet specified". If the spec
+   introduces a non-obvious design choice (share-burn timing, fee
+   accrual model, etc.), call it out explicitly so the next reader can
+   tell intent from accident.
+2. **Update the interface** — the Rust types, account structs, and
+   instruction handler signatures — to match the spec. Do **not**
+   implement the logic yet; the handler body should compile but be a
+   stub (`unimplemented!()`, `todo!()`, or just enough to return
+   `Ok(())`). This step is purely about shape: structs, accounts,
+   constraints, error variants.
+3. **Write a failing test.** Add a `programs/fund/tests/*.rs` litesvm
+   integration test that exercises the feature end-to-end against a
+   freshly compiled `fund.so`. Run it and confirm it actually fails for
+   the reason you expect (`unimplemented!` panic, wrong balance,
+   wrong account state — not "fails to compile" or "fails on setup
+   unrelated to the feature").
+4. **Implement** the handler body until the test passes. Don't change
+   the test to make it pass unless the spec changed; if the spec needs
+   to change, go back to step 1.
+5. **Confirm the test passes** (and any previously-passing tests still
+   do — run `cargo test --workspace`).
+6. **Commit and push**, then move to the next feature.
+
+When you (the agent) are working on a feature, surface which step
+you're in before doing it ("specifying X next", "writing the failing
+test for X", etc.) so the user can intercept at the right point.
 
 ## Project
 
