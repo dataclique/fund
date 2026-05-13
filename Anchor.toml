@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-fund = "5nNVyzESLk4QNQh7HgxAAwFmHnN37WUz1aCttBLwFo2e"
+fund = "8FUTArRdDgGDTYbnBMrzB7mBTwLrYpJDTzWY4d62GpCD"
 
 [provider]
 cluster = "localnet"

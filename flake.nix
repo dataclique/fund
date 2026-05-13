@@ -182,7 +182,20 @@
                   pkg-config
                   openssl
                   nushell
+                  # `anchor build`'s IDL pass shells out to rustup. We
+                  # ship it but keep its state under `.devenv/rustup-home/`
+                  # and link the nix-pinned toolchain in via
+                  # `rustup toolchain link nix …` so it never reaches the
+                  # network. See scripts/setup-rust-toolchain.nu.
+                  rustup
                 ]);
+
+              enterShell = ''
+                eval "$(nu ${sbfScripts}/libexec/setup-rust-toolchain.nu \
+                  --devenv-root "''${DEVENV_ROOT:-$PWD}" \
+                  --rustup-bin "$(command -v rustup)" \
+                  --rust-toolchain "${rustToolchain}")"
+              '';
 
               languages = {
                 nix.enable = true;

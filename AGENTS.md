@@ -215,6 +215,15 @@ re-pin the lockfile and `nix run .#probe-cargo-build-sbf -- --clean
   download (`reqwest::Error { kind: Decode, source: TimedOut }`), which is
   exactly what the pre-fetch is meant to avoid.
 
+## Anchor framework
+
+`fund` is an Anchor program. Before touching `programs/fund/src/`, read
+@docs/anchor.md — it covers the four core macros (`declare_id!`,
+`#[program]`, `#[derive(Accounts)]`, `#[account]`), account validation,
+the 8-byte discriminator, and the IDL/client codegen flow. Notably:
+Anchor does **not** care about `.rs` file names inside
+`instructions/` — they're a project convention, not a framework rule.
+
 ## Security
 
 Every new instruction must be reviewed against the Solana/Anchor attack catalogue in @docs/sealevel-attacks.md before merging. Treat the checklist at the bottom of that document as a hard gate — each `#[derive(Accounts)]` struct should be walked through it explicitly.
