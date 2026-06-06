@@ -1,6 +1,6 @@
-# AGENTS.md
+# CLAUDE.md
 
-This file provides guidance to coding agents working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Practices that apply repo-wide
 
@@ -38,29 +38,18 @@ of mistake.
    stub (`unimplemented!()`, `todo!()`, or just enough to return
    `Ok(())`). This step is purely about shape: structs, accounts,
    constraints, error variants.
-3. **Security review (hard gate).** Walk every new or modified
-   `#[derive(Accounts)]` struct from step 2 through the checklist in
-   @docs/sealevel-attacks.md, confirming each Solana/Anchor attack
-   class is handled (signer, owner, account matching, arbitrary CPI,
-   PDA seeds and canonical bump, duplicate-mutable, init re-entry).
-   This gate must pass before any test or implementation work begins —
-   an unreviewed account struct is a blocking defect, not a post-merge
-   follow-up.
-4. **Write a failing test.** Add a `programs/fund/tests/*.rs` litesvm
+3. **Write a failing test.** Add a `programs/fund/tests/*.rs` litesvm
    integration test that exercises the feature end-to-end against a
    freshly compiled `fund.so`. Run it and confirm it actually fails for
    the reason you expect (`unimplemented!` panic, wrong balance,
    wrong account state — not "fails to compile" or "fails on setup
    unrelated to the feature").
-5. **Implement** the handler body until the test passes. Don't change
+4. **Implement** the handler body until the test passes. Don't change
    the test to make it pass unless the spec changed; if the spec needs
    to change, go back to step 1.
-6. **Confirm the test passes** (and any previously-passing tests still
-   do). Run `anchor build` first, then `cargo test --workspace` — the
-   litesvm tests `include_bytes!` `target/deploy/fund.so`, so without a
-   fresh `anchor build` they either fail to compile or exercise a stale
-   binary and report false results.
-7. **Commit and push**, then move to the next feature.
+5. **Confirm the test passes** (and any previously-passing tests still
+   do — run `cargo test --workspace`).
+6. **Commit and push**, then move to the next feature.
 
 When you (the agent) are working on a feature, surface which step
 you're in before doing it ("specifying X next", "writing the failing
@@ -139,9 +128,7 @@ The pattern (`tests/test_initialize.rs`):
 - `state.rs` — account state structs (currently empty).
 - `constants.rs`, `error.rs` — shared constants and `#[error_code]` enums.
 
-When adding a new instruction (code-layout mechanics only — the full
-process, including spec, security review, failing test, and
-implementation, is the "Feature workflow" above):
+When adding a new instruction:
 
 1. Create `programs/fund/src/instructions/<name>.rs` with `#[derive(Accounts)] pub struct <Name>` and `pub fn handler(...)`.
 2. Add `pub mod <name>; pub use <name>::*;` to `instructions.rs`.
@@ -246,6 +233,18 @@ re-pin the lockfile and `nix run .#probe-cargo-build-sbf -- --clean
   download (`reqwest::Error { kind: Decode, source: TimedOut }`), which is
   exactly what the pre-fetch is meant to avoid.
 
+## Anchor framework
+
+`fund` is an Anchor program. Before touching `programs/fund/src/`, read
+@docs/anchor.md — it covers the four core macros (`declare_id!`, `#[program]`,
+`#[derive(Accounts)]`, `#[account]`), account validation, the 8-byte
+discriminator, and the Interface Definition Language (IDL)/client codegen flow.
+Notably: Anchor does **not** care about `.rs` file names inside `instructions/`
+— they're a project convention, not a framework rule.
+
 ## Security
 
-Every new instruction must be reviewed against the Solana/Anchor attack catalogue in @docs/sealevel-attacks.md before merging. Treat the checklist at the bottom of that document as a hard gate — each `#[derive(Accounts)]` struct should be walked through it explicitly.
+Every new instruction must be reviewed against the Solana/Anchor attack
+catalogue in @docs/sealevel-attacks.md before merging. Treat the checklist at
+the bottom of that document as a hard gate — each `#[derive(Accounts)]` struct
+should be walked through it explicitly.
