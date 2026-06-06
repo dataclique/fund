@@ -21,7 +21,7 @@ custom-panic = []
 
 
 [dependencies]
-anchor-lang = "0.31"
+anchor-lang = { version = "0.31", features = ["init-if-needed"] }
 anchor-spl = "0.31"
 
 [dev-dependencies]

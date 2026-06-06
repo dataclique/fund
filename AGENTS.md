@@ -151,7 +151,7 @@ The pattern (`tests/test_create_fund.rs`):
 `programs/fund/src/`:
 
 - `lib.rs` — `declare_id!` and the `#[program] mod fund { ... }` block. Each public program function is a thin delegate to `instructions::<name>::handler`.
-- `instructions/` + `instructions.rs` — one file per instruction; the parent module re-exports with `pub use <name>::*` so `Initialize` (account context) and `handler` are reachable as `fund::Initialize` / `fund::initialize::handler`.
+- `instructions/` + `instructions.rs` — one file per instruction; the parent module re-exports with `pub use <name>::*` so `CreateFund` (account context) and Anchor's generated client-accounts modules reach the crate root. Every module's `handler` collides in the glob (expected, lint-allowed) — handlers are always called module-qualified (`<name>::handler`).
 - `state.rs` — account state structs (currently empty).
 - `constants.rs`, `error.rs` — shared constants and `#[error_code]` enums.
 
@@ -160,7 +160,7 @@ including spec, failing test, and security review, is the "Feature
 workflow" above):
 
 1. Create `programs/fund/src/instructions/<name>.rs` with `#[derive(Accounts)] pub struct <Name>` and `pub fn handler(...)`.
-2. Add `pub mod <name>; pub use <name>::*;` to `instructions.rs`.
+2. Add `pub mod <name>; pub use <name>::*;` (with `#[allow(ambiguous_glob_reexports)]`) to `instructions.rs`.
 3. Add a thin wrapper inside `#[program] mod fund` in `lib.rs` that calls `<name>::handler(ctx, ...)`.
 
 ## Wallet / cluster
