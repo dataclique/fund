@@ -23,7 +23,7 @@ Anchor-based Solana program named `fund`. Single on-chain program, Cargo workspa
 
 This repo is split off from the main monorepo specifically because Solana tooling isn't compatible with everything we use over there. The standing rule that follows from that: **always succumb to whatever Solana tooling wants from us.** Match its version pins, directory layout, env-var conventions, and config defaults rather than fighting them — concretely, if `cargo-build-sbf` expects platform-tools at `~/.cache/solana/v<X>/`, pin v<X> in the flake; don't pick a different version and try to make Solana like it.
 
-- Program ID: `5nNVyzESLk4QNQh7HgxAAwFmHnN37WUz1aCttBLwFo2e` (declared both in `programs/fund/src/lib.rs` and `Anchor.toml`'s `[programs.localnet]` — keep in sync)
+- Program ID: `8FUTArRdDgGDTYbnBMrzB7mBTwLrYpJDTzWY4d62GpCD` (declared both in `programs/fund/src/lib.rs` and `Anchor.toml`'s `[programs.localnet]`, and must match `target/deploy/fund-keypair.json` — keep all three in sync via `anchor keys sync`)
 - Anchor toolchain: `package_manager = "bun"` (not yarn/npm)
 - Rust toolchain pinned via `rust-toolchain.toml` (1.95.0)
 - Dev shell provided by Nix flake + devenv (`flake.nix`); `.envrc` loads it via direnv
@@ -39,7 +39,7 @@ anchor build
 cargo test
 
 # Run a single test
-cargo test --package fund --test test_initialize -- test_initialize --exact
+cargo test --package fund --test test_create_fund -- create_fund_initializes_fund_vault_and_shares_mint --exact
 
 # Lint / format JS/TS
 bun run lint
@@ -73,7 +73,7 @@ source of truth.
 
 Tests do **not** use `anchor test`. They use [`litesvm`](https://docs.rs/litesvm) directly from Rust integration tests under `programs/fund/tests/`.
 
-The pattern (`tests/test_initialize.rs`):
+The pattern (`tests/test_create_fund.rs`):
 
 1. `include_bytes!("../../../target/deploy/fund.so")` — pulls the compiled BPF binary at compile time.
 2. `LiteSVM::new()` + `svm.add_program(program_id, bytes)` — loads it into an in-memory SVM.

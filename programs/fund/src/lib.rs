@@ -7,14 +7,15 @@ use anchor_lang::prelude::*;
 
 pub use constants::*;
 pub use instructions::*;
+pub use state::*;
 
-declare_id!("5nNVyzESLk4QNQh7HgxAAwFmHnN37WUz1aCttBLwFo2e");
+declare_id!("8FUTArRdDgGDTYbnBMrzB7mBTwLrYpJDTzWY4d62GpCD");
 
 #[program]
 pub mod fund {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        initialize::handler(ctx)
+    pub fn create_fund(ctx: Context<CreateFund>, params: CreateFundParams) -> Result<()> {
+        create_fund::handler(ctx, params)
     }
 }
