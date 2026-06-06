@@ -1,6 +1,9 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
+(References written as `@docs/<file>` are agent-tooling import directives:
+supported agents load the referenced repo-relative file together with this
+one. Read them as plain repo paths.)
 
 ## Practices that apply repo-wide
 
@@ -39,17 +42,41 @@ of mistake.
    `Ok(())`). This step is purely about shape: structs, accounts,
    constraints, error variants.
 3. **Write a failing test.** Add a `programs/fund/tests/*.rs` litesvm
-   integration test that exercises the feature end-to-end against a
-   freshly compiled `fund.so`. Run it and confirm it actually fails for
-   the reason you expect (`unimplemented!` panic, wrong balance,
-   wrong account state — not "fails to compile" or "fails on setup
-   unrelated to the feature").
+   integration test (see the "Test architecture" section below) that
+   exercises the feature end-to-end against a freshly compiled
+   `fund.so`. Run `anchor build`, then run the test and confirm it
+   actually fails for the reason you expect (`unimplemented!` panic,
+   wrong balance, wrong account state — not "fails to compile" or
+   "fails on setup unrelated to the feature").
 4. **Implement** the handler body until the test passes. Don't change
    the test to make it pass unless the spec changed; if the spec needs
    to change, go back to step 1.
 5. **Confirm the test passes** (and any previously-passing tests still
-   do — run `cargo test --workspace`).
+   do — run `cargo test --workspace`), and **walk every new or modified
+   `#[derive(Accounts)]` struct through the checklist in
+   @docs/sealevel-attacks.md** — the security review is a hard gate,
+   not a post-merge follow-up (see "Security" below).
 6. **Commit and push**, then move to the next feature.
+
+**A feature spans at least two PRs (sometimes more), as a stack:**
+
+- **Contract PR** — steps 1-3: the SPEC section, the interface (stubbed
+  handlers/account structs/error variants), and the failing `litesvm`
+  test(s). This PR's CI is **red on purpose** — the failing tests are the
+  executable contract for the behavior the feature must exhibit.
+- **Implementation PR** — step 4, stacked on the contract PR: the handler
+  bodies that turn the red tests green. CI passes; the green run proves the
+  implementation fulfills exactly the contract the tests defined.
+
+Split further when a spec or implementation is large (one contract PR, then
+several implementation PRs). A preliminary docs-only PR (the SPEC section
+plus supporting reference docs) may precede the contract PR when the spec
+deserves standalone review; the stubbed interface and failing tests must
+still land as a red contract PR that the implementation PR stacks on.
+**Never collapse a feature into a single tests-plus-implementation PR** —
+the whole point is that the red-to-green transition is visible in CI and
+reviewable as distinct steps. Smart-contract bugs are catastrophic; this
+split is a hard gate, not a preference.
 
 When you (the agent) are working on a feature, surface which step
 you're in before doing it ("specifying X next", "writing the failing
@@ -128,7 +155,9 @@ The pattern (`tests/test_initialize.rs`):
 - `state.rs` — account state structs (currently empty).
 - `constants.rs`, `error.rs` — shared constants and `#[error_code]` enums.
 
-When adding a new instruction:
+When adding a new instruction (code-layout mechanics only — the process,
+including spec, failing test, and security review, is the "Feature
+workflow" above):
 
 1. Create `programs/fund/src/instructions/<name>.rs` with `#[derive(Accounts)] pub struct <Name>` and `pub fn handler(...)`.
 2. Add `pub mod <name>; pub use <name>::*;` to `instructions.rs`.
