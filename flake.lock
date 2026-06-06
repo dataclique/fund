@@ -1,5 +1,28 @@
 {
   "nodes": {
+    "but": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1780757267,
+        "narHash": "sha256-F2F01nY2Po/sMyqOzowhsk71IcGyO8wHqwZG2T1DP2A=",
+        "owner": "data-cartel",
+        "repo": "but.nix",
+        "rev": "9168f0d163f90748d31236004d61c3da0881d8d5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "data-cartel",
+        "repo": "but.nix",
+        "type": "github"
+      }
+    },
     "cachix": {
       "inputs": {
         "devenv": [
@@ -877,6 +900,7 @@
     },
     "root": {
       "inputs": {
+        "but": "but",
         "devenv": "devenv",
         "flake-utils": "flake-utils",
         "git-hooks": "git-hooks_3",

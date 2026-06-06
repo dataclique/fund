@@ -14,6 +14,12 @@
 
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
+
+    but = {
+      url = "github:data-cartel/but.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
   };
 
   outputs =
@@ -24,6 +30,7 @@
       git-hooks,
       devenv,
       rust-overlay,
+      but,
       ...
     }@inputs:
     flake-utils.lib.eachDefaultSystem (
@@ -170,6 +177,16 @@
         devShells.default = devenv.lib.mkShell {
           inherit inputs pkgs;
           modules = [
+            (but.lib.${system}.devenvModule {
+              repoNotes = ''
+                ## This Repository
+
+                Commit, branch, and pre-commit-hook conventions live in
+                `AGENTS.md` under "Version control (GitButler)" -- that
+                section is the source of truth; read it before committing.
+
+              '';
+            })
             {
               packages =
                 pkgs.lib.optional (cargoBuildSbfWrapper != null) cargoBuildSbfWrapper
