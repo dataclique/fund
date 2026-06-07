@@ -1082,7 +1082,8 @@ which the safe tranche redeems.
 ## 11. Decisions requiring a human call
 
 Each has a real tradeoff and material consequence for investor money. These are
-surfaced for review; nothing is implemented until they are settled.
+surfaced for review; nothing is implemented until they are settled. Items 3 and 4
+are now **decided** (marked inline below); the rest remain open.
 
 1. **Off-Solana exposure ceiling (the biggest one).** Given off-Solana NAV is
    venue-API-trusted (Option A) and ring-fenced out of the redeemable price, how
@@ -1095,15 +1096,18 @@ surfaced for review; nothing is implemented until they are settled.
    staked/slashable set with corruption-cost > corruption-profit at the chosen
    cap.
 
-3. **Two-tranche share structure:** separate share classes vs. single class with
-   a non-redeemable accounting partition. Recommendation: single fungible class
-   for the on-Solana redeemable claim, with `attested_nav` tracked as a clearly
-   disclosed, separately-priced, non-redeemable-until-proven partition.
+3. **Two-tranche share structure** -- **DECIDED: single fungible class with a
+   non-redeemable accounting partition.** The on-Solana redeemable claim is one
+   fungible class; `attested_nav` is tracked as a clearly disclosed,
+   separately-priced partition that is non-redeemable until proven. Separate
+   share classes were rejected as unnecessary structural complexity for the same
+   ring-fencing guarantee.
 
-4. **Upgrade authority:** timelocked-forever (recommended) vs. eventual burn.
-   Recommendation: keep behind a >=3-of-5 independent-signer Squads multisig +
-   long timelock permanently. Decide the timelock length (Compound's 48h is the
-   floor; longer for a fund) and the signer-independence attestation to publish.
+4. **Upgrade authority** -- **DECIDED: retain a timelocked Squads multisig
+   permanently (no eventual burn).** Kept behind a >=3-of-5 independent-signer
+   Squads multisig + long timelock. Open sub-decisions remain: the timelock
+   length (Compound's 48h is the floor; longer for a fund) and the
+   signer-independence attestation to publish.
 
 5. **Asymmetric-ratchet timelock lengths.** How long must the loosen-side
    timelock be (add destination / lower haircut / widen cap / swap oracle)?
