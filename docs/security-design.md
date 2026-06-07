@@ -16,6 +16,24 @@ deposit-pricing vulnerability tracked in issue
 Section 11 lists the decisions that require a human call before implementation
 begins. Nothing here is implemented yet; this is the contract we design against.
 
+> **Revision in progress ([ADR 0002](../adrs/0002-tiered-off-solana-nav-inclusion.md)).**
+> The product mandate is cross-chain and multi-venue with Hyperliquid central, so
+> "ring-fence ALL off-Solana value OUT" (the original verdict below) is replaced
+> by a **tiered** model: Tier 1 (on-Solana) and Tier 2 (Hyperliquid, read from
+> its own consensus via HyperEVM precompiles + Wormhole Queries) are in the
+> redeemable price; Tier 3 (Derive, any CEX) stays ring-fenced out. Section 9
+> (the verdict) and Section 11 (the decisions) below are already revised to the
+> tiered model; the detailed Sections 1-6 still largely describe the original
+> ring-fence-everything model -- the load-bearing pricing statements (Principle
+> 2, Principle 5's breaker scoping, the Section 2 formulas, Section 3b items
+> 1/5 and its trust/tradeoff statements, Section 4's breaker denomination and
+> manager-lever list, Section 6's stale-read settlement and FIFO rationale,
+> Section 8's bridge rule) carry
+> inline ADR-0002 revision notes -- and are fully rewritten to the tiering only
+> after the owner ratifies ADR 0002. Where a section below says "ring-fence all
+> off-Solana out," read it as "ring-fence Tier 3 out; include Tier 2 at a
+> pessimistic floor behind a total-loss-tolerable cap."
+
 ---
 
 **The single load-bearing correction.** The naive design's central promise --
@@ -986,33 +1004,49 @@ cross-chain drain.
 
 ---
 
-## 9. The honest verdict on trust-minimized off-chain NAV
+## 9. The honest verdict on trust-minimized off-chain NAV (revised: tiered inclusion)
 
-**Fully trust-minimized valuation of Hyperliquid L1 perps and Derive L2 options
-does not exist with shipping technology today.** Any claim otherwise is
-relocating manager trust into a backend/notary attestor -- the Stream Finance /
-Ronin / Multichain failure mode. The achievable target is **trust-MINIMIZED with
-explicitly bounded, disclosed residual trust, plus a structural ring-fence so the
-residual cannot move the redeemable price.**
+**Revised per [ADR 0002](../adrs/0002-tiered-off-solana-nav-inclusion.md).** The
+original verdict here was "ring-fence ALL off-Solana value OUT of the redeemable
+price." That was correct for the technology it surveyed, but it makes the product
+-- whose core capital is off-Solana, Hyperliquid central -- non-viable. The
+corrected verdict is **tiered, earned per `(venue, asset)` pair.**
 
-What each viable option actually achieves:
+Fully trust-minimized valuation of foreign-venue positions still does not exist
+with shipping technology. But one fact changed for **Hyperliquid only**: its
+HyperBFT consensus state is now readable on Solana (HyperEVM precompiles +
+Wormhole Queries, chain 47), so its account equity can be read without a manager
+signature. That moves the residual from *manager honesty* (Stream Finance) to
+*named venue-consensus + read-channel honesty + aggregate solvency* -- strictly
+better. Derive and any CEX have no such read; nothing changes for them.
 
-| Option | What it proves | Irreducible residual trust | Verdict |
+Include a tier in the redeemable price only when (a) an independent consensus read
+exists AND (b) two independent oracle feeds (Pyth AND Switchboard -- rail 4's
+divergence breaker requires both) price the asset; price it at a pessimistic
+floor, behind a latching integral cap sized total-loss-tolerable for the leg;
+ring-fence everything else out.
+
+| (venue, asset) tier | What is proven | Irreducible residual | Verdict |
 |---|---|---|---|
-| **A. zkTLS + staked notary committee, full account state (equity+liabilities), account-id-pinned, freshness/replay-bound** | The venue's authenticated API returned this *complete* account state at time T for *this* account | (1) **venue-API honesty** -- proves the venue *said* it, not that it is economically true; (2) **notary-set non-collusion sized against the cap** -- all notaries see one upstream session, so committee independence != Byzantine fault tolerance of the *data source*; (3) **foreign-chain TOCTOU** within the settlement window | **Recommended for off-Solana quantities/equity, ring-fenced out of redeemable price.** The honest label is "venue-API-trusted, bounded exposure." |
-| **B. Optimistic bonded dispute (UMA-style)** | A posted NAV that survives a challenge window | **Category error for private accounts:** outsiders cannot produce a counter-proof of a privately-authenticated account, so disputes are unfalsifiable; CoC>PfC also fails once NAV-at-stake exceeds bond/token cap (UMA Polymarket: ~$237M secured by a ~$95M-cap token); adds a griefing-freeze surface | **Rejected for off-Solana NAV.** Permitted only to police *publicly verifiable* inputs (oracle prices, on-Solana positions). |
-| **C. Native verifiable read (consensus-backed venue state proof)** | The venue's *consensus* attests the state | Source-chain consensus honesty (inherited) | **The only path to genuinely trust-minimized off-Solana NAV** -- but does not exist for HyperCore / Derive today. The frontier to migrate to when it ships. |
-| **D. Manager-signed NAV** | Nothing -- the manager's word | Total manager trust | **Rejected outright.** This is Stream Finance. |
+| **1 -- on-Solana** (Drift/Kamino/Jupiter) | on-chain state, oracle-priced | Pyth/Switchboard publisher honesty | In the price, full value. Trust-minimized. |
+| **2 -- Hyperliquid major + independent oracle, all ADR-0002 rails** | a guardian quorum's RPC view of venue-consensus state at block N ("venue consensus computed this equity" holds only if guardian node-sourcing is confirmed -- ADR 0002 rail 1d) | HyperBFT economic truthfulness (governance trust; JELLY-class override is a governance action, not a 51% attack); read-channel honesty (Wormhole 13/19 -- honest-transmission-of-false-state is the dominant failure, the quorum does NOT defend it) plus the queried RPC operators until sourcing is confirmed; aggregate venue solvency; foreign-chain TOCTOU + ADL in-window | In the price at a pessimistic floor, capped total-loss-tolerable. Label "venue-consensus-attested, capped" (downgraded per ADR 0002 rail 1d until sourcing is confirmed). |
+| **3 -- Hyperliquid alt, no independent oracle (Tier-2 venue, Tier-3-treated asset)** | venue self-referential mark | Mango-class self-pump; divergence breaker disarmed | Ring-fenced OUT. |
+| **3 -- Derive L2 options, any CEX (zkTLS / venue-API)** | the venue *said* it | venue-API honesty, not economic truth; notary committee adds no BFT over one upstream session; TOCTOU | Ring-fenced OUT of the redeemable price. Side-pocketed claim token (unchanged). |
+| **Optimistic bonded dispute (UMA-style)** | a posted NAV surviving a window | category error for *private* accounts (Tier 3); CoC>PfC fails once at-stake > bond cap | Rejected for Tier 3. Admissible only as a *subordinate* cross-check over Tier-2 publicly-verifiable state. |
+| **Native ZK light client of HyperBFT (Tier 2b)** | venue consensus, no guardian trust | source-chain consensus (inherited) | The frontier to migrate to. Not shipping today. |
+| **Manager-signed NAV** | nothing | total manager trust | Rejected. Stream Finance. |
 
-**Bottom line.** With Option A + ring-fencing, an investor can always redeem
-against `verifiable_nav` (genuinely trust-minimized: Pyth/Switchboard + native
-on-chain reads), and sees the off-Solana slice clearly marked as
-venue-API-trusted with a capped, total-loss-tolerable exposure that **cannot move
-the price they redeem at.** That structural separation -- not a "blast-radius
-cap" on a global share price -- is the real difference between this fund and
-Stream Finance. The off-Solana tranche is honestly riskier; the on-Solana tranche
-is honestly safe; and no off-Solana failure can silently inflate the price at
-which the safe tranche redeems.
+**Bottom line.** An investor redeems against `verifiable_nav` (Tier 1,
+trust-minimized) plus a floored, capped, override-aware Hyperliquid contribution
+(Tier 2) whose marking residual is venue-consensus rather than manager honesty,
+plus a side-pocketed claim token for Derive/CEX value (Tier 3, ring-fenced out).
+The flip is earned per `(venue, asset)` by an independent consensus read AND
+both independent oracle feeds -- Hyperliquid majors earn it; Hyperliquid alts
+and all of
+Derive do not. Inclusion improves the *marking* residual; it does NOT escape the
+global-share-price correction or the total-loss-tolerable cap, and we do not
+claim it does. The six Tier-2 rails (ADR 0002) ship as a failing-tests contract
+before inclusion is enabled.
 
 ---
 
@@ -1083,60 +1117,124 @@ which the safe tranche redeems.
 
 Each has a real tradeoff and material consequence for investor money. These are
 surfaced for review; nothing is implemented until they are settled. Items 3 and 4
-are now **decided** (marked inline below); the rest remain open.
+are **decided**; the rest are re-scoped to the tiered inclusion model
+([ADR 0002](../adrs/0002-tiered-off-solana-nav-inclusion.md)) and remain open.
 
-1. **Off-Solana exposure ceiling (the biggest one).** Given off-Solana NAV is
-   venue-API-trusted (Option A) and ring-fenced out of the redeemable price, how
-   much of the fund may sit in the off-Solana (non-redeemable-until-proven)
-   tranche? Recommendation: size it to total-loss-tolerable -- the on-Solana
-   tranche must be unharmed if the entire off-Solana tranche is lost.
+1. **(revised) Tier-2 (Hyperliquid) exposure ceiling** = total-loss-tolerable for
+   the leg. Inclusion does NOT license dropping this: the consensus read improves
+   the *marking* residual, not the solvency/total-loss residual. The ceiling is
+   the standing recognized-but-unrealized Hyperliquid value the fund can lose
+   entirely without harming Tier-1 holders. Ratify it knowing the ceiling and
+   rail 6's latch bound the **redemption** channel only; the **deposit** channel
+   stays unbounded under a persistent clean false-high read until the
+   deposit-side bound (item 17 / ADR 0002 open decision 9) lands.
 
-2. **Notary committee economic-security model.** Staked? AVS-slashed? What
-   corruption cost vs. the per-venue cap? Recommendation: require a
-   staked/slashable set with corruption-cost > corruption-profit at the chosen
-   cap.
+2. **(revised) Cross-chain-read economic-security model** (replaces the
+   notary-committee model). For Hyperliquid: accept the Wormhole 13-of-19 /
+   ZK-light-client quorum, whose dominant failure -- honest transmission of a
+   false venue state -- the quorum does NOT defend; bound it by the cap and
+   require an independent second path to agree before RAISING value. Notary/AVS
+   economic security remains only for Tier-3 *reporting* (never pricing).
 
-3. **Two-tranche share structure** -- **DECIDED: single fungible class with a
-   non-redeemable accounting partition.** The on-Solana redeemable claim is one
-   fungible class; `attested_nav` is tracked as a clearly disclosed,
-   separately-priced partition that is non-redeemable until proven. Separate
-   share classes were rejected as unnecessary structural complexity for the same
-   ring-fencing guarantee.
+3. **(DECIDED)** Single fungible class with a non-redeemable accounting partition,
+   realized as the per-asset-condition auto-side-pocket / claim-token mechanism.
 
-4. **Upgrade authority** -- **DECIDED: retain a timelocked Squads multisig
-   permanently (no eventual burn).** Kept behind a >=3-of-5 independent-signer
-   Squads multisig + long timelock. Open sub-decisions remain: the timelock
-   length (Compound's 48h is the floor; longer for a fund) and the
-   signer-independence attestation to publish.
+4. **(DECIDED)** Retain a timelocked Squads upgrade authority (>=3-of-5
+   independent signers + long timelock; open sub-decisions: timelock length,
+   published signer-independence attestation).
 
-5. **Asymmetric-ratchet timelock lengths.** How long must the loosen-side
-   timelock be (add destination / lower haircut / widen cap / swap oracle)?
-   Recommendation: long enough for investors to fully exit the on-Solana tranche
-   before any loosening takes effect.
+5. **(revised) Asymmetric-ratchet loosen-side timelock** >= the time to fully
+   unwind and repatriate the Tier-2 tranche to USDC at the venue-capacity-limited
+   gate rate (because verifiable_nav is now the minority, "exit during the
+   timelock" no longer holds otherwise). Loosen-side actions need a supermajority
+   strictly larger than tighten-side.
 
-6. **Latching drawdown ceiling + reset policy.** What standing drawdown halts
-   trading, and what governance action resets it? Recommendation: a hard
-   lifetime/quarterly integral ceiling, reset only via the privileged multisig +
-   timelock.
+6. **Latching drawdown ceiling + reset policy.** A hard lifetime/quarterly
+   integral ceiling on the pessimistic-floored `redeemable_nav_redeem`, reset
+   only via the
+   privileged multisig + timelock.
 
 7. **Epoch length / withdrawal cadence and per-epoch outflow cap.** Shorter +
    higher = better UX, less unwind time, more run-risk; longer + lower = safer,
    worse liquidity. Ribbon weekly / Lido daily are references.
 
-8. **Off-Solana proof-staleness escape-hatch parameters.** After how many missed
-   epochs does the off-Solana tranche force-settle, and at what punitive haircut?
-   Recommendation: an `N` short enough that investors are never trapped
-   indefinitely, with a haircut conservative enough that force-settlement never
-   over-pays a redeemer at others' expense.
+8. **(revised) Proof-staleness escape-hatch + decay granularity.** The decay
+   curve, the per-venue staleness window, the missed-epoch count N for claim-token
+   issuance, AND that price decay is evaluated at the epoch checkpoint (not per
+   slot; the side-pocket trigger may use continuous decay). Plus the
+   volatility-adaptive freshness window for the read (sub-epoch in stress).
 
-9. **Conservative haircut levels per off-Solana venue/asset.** Higher = safer
-   NAV, more drag; lower = closer to true NAV, more manipulation room.
+9. **(revised) Haircut levels per tier** as a security parameter buying
+   loss-tolerance headroom; Tier-2's haircut is strictly less than Tier-3's
+   effective 100% (full ring-fence -- Tier 3 contributes zero) and strictly
+   greater than Tier-1's zero.
 
-10. **Virtual-offset value + seed size.** Offset 0 (OZ default, already makes
-    inflation unprofitable with a seed) up to ~12 (USDC-6-decimal analog of
-    MetaMorpho's `max(0, 18-decimals)`). Recommendation: a meaningful offset plus
-    a real seed + dead shares, locked non-withdrawable. (The 3-6 range is
-    illustrative in OZ docs, not an OZ-recommended band.)
+10. **Virtual-offset value + seed size.** Bounded by ADR 0001's hard
+    constraint `capacity * 10^offset <= u64::MAX` (SPL mint supply is u64):
+    a USDC-6 fund at ~10^8-USDC capacity allows offset <= ~4-5, and offset 12
+    caps capacity at ~18 USDC -- the MetaMorpho-style `max(0, 18-decimals)`
+    ~12 figure is an ERC-20/uint256 analog that does not port to SPL. ADR
+    0001's guidance stands: a small offset (0 or 1) suffices, with internal
+    accounting as the primary defense, plus a real seed + dead shares, locked
+    non-withdrawable.
+
+11. **(new) The cap tuple, with the corrected binding constraint.** `{Delta_max
+    (derivative), L_standing ceiling (integral) <= total-loss-tolerable, h per
+    tier, R_max per epoch, cumulative Tier-2-attributed redemption-outflow
+    latch (rail 6: no refill, governance reset only)}`. The binding constraint
+    is `L_standing <= total-loss-tolerable cap`, NOT a per-epoch bond (which
+    bounds only one epoch) -- and the latch is part of the mandatory
+    failing-test contract, because `L_standing` bounds the stock of a standing
+    lie, not the multi-epoch redemption drain: without it a persistent false
+    read extracts `k x R_max` across `k` epochs (ADR 0002 rail 6).
+    The tradeoff: a large Hyperliquid allocation forces either a low standing
+    ceiling (tracking error vs true NAV) or accepting the leg's total loss is
+    survivable at that size. This is the un-bonded cost of including off-Solana
+    core capital.
+
+12. **(new, blocking) OES custody.** Route Hyperliquid principal through an
+    off-exchange-settlement custodian? If so it is a named trusted party with a
+    no-rehypothecation PoR; if the manager keeps the trade-direction relationship,
+    "manager never holds it" is cosmetic -- disclose accordingly.
+
+13. **(new) Subordinate dispute window over Tier-2 state.** Admit a bonded dispute
+    window over the relayed read (valid because the state is publicly verifiable)
+    as a cross-check, strictly secondary to the cap?
+
+14. **(new, blocking) Bond-poster and slash trigger.** A real backstop needs a
+    third-party / restaking-AVS poster and an objective on-chain slash trigger
+    (read-block-N equity vs a later independent read exceeding tolerance), never a
+    governance vote. If neither exists, credited insurance = 0 and we disclose
+    "Tier-2 inclusion is not manager-removed for the slashing layer."
+
+15. **(new) Derive: the mandate-vs-safety business call.** Derive cannot be Tier 2
+    (no consensus read) and cannot be redeemable as Tier 3 (Stream pattern), so
+    its value is side-pocketed, non-redeemable-until-realized. Does side-pocketed
+    Derive value satisfy the mandate, or is Derive deferred until a consensus read
+    exists? (No-arbitrage haircuts crush most OTM Derive strikes toward zero
+    anyway, so the redeemable value forgone may be small.)
+
+16. **(new) Inclusion-eligibility allowlist (per asset, not per venue).** Which
+    Hyperliquid perps are inclusion-eligible (BOTH an independent Pyth feed
+    AND a Switchboard feed -- rail 4's divergence breaker requires both -- +
+    minimum depth/OI), with depth-indexed per-perp sub-caps. Everything else
+    on Hyperliquid is Tier-3-treated.
+
+17. **(new) Deposit-side false-read bound** (ADR 0002 open decision 9 --
+    **blocking for Tier-2 inclusion**). Rail 6's latch bounds redemption
+    outflow, but a persistent clean false-high read symmetrically over-prices
+    every deposit, and that extraction path is unbounded until a deposit-side
+    mechanism is ratified: a second latch over the cumulative Tier-2 deposit
+    premium, or excluding unreconciled Tier-2 value from the deposit price.
+    See ADR 0002 open decision 9 for the candidate mechanisms and tradeoffs.
+
+18. **(new) Committed-redemption settlement under an active data-integrity
+    halt** (ADR 0002 open decision 10). Settling committed redemptions at
+    the floor keeps Principle 5's exit-liveness but hands a halt-controller
+    a timed value transfer from exiting to remaining holders; the
+    alternatives (roll-forward at standing instruction, or Tier-1-now with
+    a Tier-2 escrow true-up) trade exit-latency or settlement complexity
+    for removing the lever. See ADR 0002 open decision 10.
 
 ---
 
@@ -1145,13 +1243,19 @@ are now **decided** (marked inline below); the rest remain open.
 Every mandate is grounded in a correctly-characterized incident. The single root
 error to avoid is **pooling unverifiable, manager-influenced value into the same
 NAV and share price as the verifiable assets.** The master correction is
-**two-NAV ring-fencing: redeem and price against what you can prove on Solana;
-everything you can only be told is capped, clearly marked, and structurally
-barred from moving the redeemable price.** That, plus an always-redeemable
-on-Solana tranche, a latching drawdown breaker, an on-chain fee model, attested
-*equity* (not quantity) with full liabilities, and retained-timelocked
-upgradeability, is the difference between this fund and Stream Finance wearing a
-zk costume.
+**verifiability tiering ([ADR 0002](../adrs/0002-tiered-off-solana-nav-inclusion.md)):
+redeem against what you can prove on Solana (Tier 1) plus what you can
+independently *read* from a foreign venue's consensus (Tier 2: Hyperliquid, at a
+pessimistic floor behind a latching integral cap sized total-loss-tolerable);
+everything you can only be *told* (Tier 3: Derive, any CEX) is capped, clearly
+marked, and structurally barred from moving the redeemable price.** That, plus an
+always-redeemable on-Solana tranche, a latching drawdown breaker driven by the
+pessimistic floor, an on-chain fee model crystallized only on realized proceeds,
+read or attested *equity* (not quantity) with full liabilities, and
+retained-timelocked upgradeability, is the difference between this fund and Stream
+Finance wearing a zk costume. Inclusion improves the *marking* residual (manager
+-> venue consensus); it does not escape the global-share-price correction or the
+total-loss-tolerable cap.
 
 ---
 
