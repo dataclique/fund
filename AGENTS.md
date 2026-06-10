@@ -48,7 +48,10 @@ of mistake.
    the test to make it pass unless the spec changed; if the spec needs
    to change, go back to step 1.
 5. **Confirm the test passes** (and any previously-passing tests still
-   do — run `cargo test --workspace`).
+   do). Run `anchor build` first, then `cargo test --workspace` — the
+   litesvm tests `include_bytes!` `target/deploy/fund.so`, so without a
+   fresh `anchor build` they either fail to compile or exercise a stale
+   binary and report false results.
 6. **Commit and push**, then move to the next feature.
 
 When you (the agent) are working on a feature, surface which step

@@ -11,6 +11,10 @@ creation and deposits. Withdrawals, fees, and off-vault positions live
 under "Not yet specified" at the bottom and will be expanded when we
 implement them.
 
+> **Status:** `create_fund` and `deposit` are specification targets for
+> the upcoming implementation — neither is deployed yet. The program's
+> only exported entrypoint today is the scaffold `initialize`.
+
 ## Concepts
 
 - **Fund** — the top-level on-chain account. Holds the parameters set
@@ -91,6 +95,20 @@ sequenceDiagram
   read-only.
 - system program, token program, rent sysvar.
 
+**Error conditions**
+- `FundAlreadyExists` — a `Fund` PDA already exists for
+  `(manager, name)`; Anchor's `init` rejects re-initialization.
+- `InvalidFundPdaSeed` / `InvalidVaultSeed` / `InvalidSharesMintSeed` —
+  a passed account does not match its derived PDA
+  (`[b"fund", manager, name]`, `[b"vault", fund.key()]`,
+  `[b"shares", fund.key()]`).
+- `QuoteMintMismatch` — the `quote_mint` account does not match
+  `params.quote_mint`, or is not a valid SPL mint.
+- `RentExemptCreationFailed` — the manager cannot fund rent-exempt
+  creation of the `Fund`, `Vault`, or `SharesMint` accounts.
+- Any remaining Anchor constraint failure (missing signer, wrong
+  ownership, wrong token program) aborts before state is written.
+
 ### `deposit`
 
 Investor moves `amount` quote tokens from their own ATA into the
@@ -101,10 +119,17 @@ vault, and receives freshly-minted shares.
   `amount` shares. The stablecoin assumption makes this 1:1 mapping
   meaningful as the anchor for share price.
 - Otherwise: investor receives
-  `amount * shares_mint.supply / vault.amount`, where `vault.amount` is
-  read **before** the inbound transfer.
+  `shares_out = amount * shares_mint.supply / vault.amount`, where
+  `vault.amount` is read **before** the inbound transfer and the
+  division is **floor** integer division (rounds down, in the fund's
+  favor).
+- If the floored `shares_out == 0`, the deposit fails (`ZeroSharesOut`)
+  — a dust deposit must never transfer quote tokens without minting
+  shares, silently donating value to existing holders.
 
-Deposit fails if `vault.amount + amount > capacity`.
+Capacity is enforced with overflow-safe addition: the deposit fails if
+`vault.amount.checked_add(amount)` is `None` (`ArithmeticOverflow`) or
+the resulting sum exceeds `capacity` (`CapacityExceeded`).
 
 ```mermaid
 sequenceDiagram
@@ -113,9 +138,10 @@ sequenceDiagram
     participant Token as Token program
 
     Investor->>Program: deposit(amount)
-    Program->>Program: require vault.amount + amount <= capacity
+    Program->>Program: require vault.amount.checked_add(amount) <= capacity
+    Program->>Program: shares_out = amount (first deposit) or floor(amount * supply / aum_before)
+    Program->>Program: require shares_out > 0
     Program->>Token: transfer amount from investor_ata to Vault
-    Program->>Program: shares_out = amount (first deposit) or amount * supply / aum_before
     Program->>Token: mint shares_out to investor_shares_ata (authority = Fund PDA)
     Program-->>Investor: shares_out
 ```
@@ -131,6 +157,27 @@ sequenceDiagram
 - `investor_quote_ata` — investor's quote-token ATA, `mut`.
 - `investor_shares_ata` — investor's shares ATA, `mut` (`init_if_needed`).
 - token program, associated-token program, system program.
+
+**Error conditions**
+- `ArithmeticOverflow` — `vault.amount.checked_add(amount)` is `None`.
+- `CapacityExceeded` — `vault.amount + amount` exceeds `capacity`
+  (checked before the inbound transfer).
+- `ZeroSharesOut` — the floored share math yields `shares_out == 0`.
+- `InsufficientFunds` — `investor_quote_ata` holds fewer than `amount`
+  quote tokens; the SPL transfer fails.
+- `VaultAuthorityMismatch` / `SharesMintMismatch` — the passed `vault`
+  or `shares_mint` is not the Fund PDA's derived account
+  (`[b"vault", fund.key()]` / `[b"shares", fund.key()]`) or its
+  authority is not the Fund PDA.
+- `InvestorAtaMismatch` — `investor_quote_ata` is not the investor's
+  ATA for `quote_mint`, or `investor_shares_ata` is not the investor's
+  ATA for `shares_mint`.
+- Any remaining Anchor constraint failure (missing signer, wrong
+  ownership, wrong token program) aborts before state is written.
+
+Ordering precondition: `vault.amount` is read and both checks
+(capacity, `shares_out > 0`) pass **before** the inbound transfer, so a
+failed deposit can never leave investor tokens in the vault.
 
 ## Not yet specified
 
