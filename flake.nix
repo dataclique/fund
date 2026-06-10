@@ -172,6 +172,77 @@
               '';
             };
 
+        rustPlatformPinned = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
+
+        # `anchor idl build` invokes `cargo +<toolchain> test ...` (rustup
+        # syntax) and falls back to running `rustup toolchain install` when
+        # that fails. A nix-provided cargo rejects `+<toolchain>` and there
+        # is no rustup, so the build dies with ENOENT. These shims strip the
+        # `+<toolchain>` argument and satisfy the rustup probe.
+        cargoRustupArgShim = pkgs.writeShellApplication {
+          name = "cargo";
+          text = ''
+            # ''${1#+} strips a leading '+'; if that changes $1, then $1 is a
+            # rustup +<toolchain> selector (e.g. +1.95.0) the nix cargo rejects,
+            # so drop it before exec'ing the real cargo.
+            if [ "''${1:-}" != "''${1#+}" ]; then
+              shift
+            fi
+            exec ${rustToolchain}/bin/cargo "$@"
+          '';
+        };
+
+        rustupNoopShim = pkgs.writeShellApplication {
+          name = "rustup";
+          text = ''
+            exit 0
+          '';
+        };
+
+        # The program's Anchor IDL, generated with the host toolchain via
+        # `anchor idl build` (no SBF build, no platform-tools), exposed so
+        # consumers can take this flake as an input and generate client
+        # bindings from `$out/idl/fund.json`.
+        fundIdl = rustPlatformPinned.buildRustPackage {
+          pname = "fund-idl";
+          version = "0.1.0";
+          src = self;
+          cargoLock.lockFile = ./Cargo.lock;
+
+          nativeBuildInputs = [
+            cargoRustupArgShim
+            rustupNoopShim
+            pkgs.anchor
+            pkgs.pkg-config
+          ];
+
+          buildInputs = [ pkgs.openssl ];
+
+          buildPhase = ''
+            runHook preBuild
+            # `-- --lib` restricts the underlying `cargo test` to the lib
+            # target: the IDL print-tests are generated into the lib, while
+            # the litesvm integration tests `include_bytes!` the SBF artifact
+            # (target/deploy/fund.so), which this derivation deliberately
+            # does not build. Note this couples IDL export to the lib unit
+            # tests passing -- acceptable while those tests are host-pure.
+            anchor idl build --program-name fund --out fund-idl.json -- --lib
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/idl
+            cp fund-idl.json $out/idl/fund.json
+            runHook postInstall
+          '';
+
+          doCheck = false;
+        };
+
       in
       {
         devShells.default = devenv.lib.mkShell {
@@ -230,12 +301,22 @@
           ];
         };
 
+        packages = {
+          idl = fundIdl;
+          # `default` is the IDL, not the SBF program: the SBF build needs the
+          # cargo-build-sbf shim + platform-tools and is not a pure derivation
+          # (see the SBF toolchain notes in AGENTS.md), so `nix build .` yields
+          # the IDL that downstream consumers actually take this flake for.
+          default = fundIdl;
+        };
+
         checks = {
           git-hooks = git-hooks.lib.${system}.run {
             inherit hooks;
             src = self;
           };
           inherit sbfScripts;
+          idl = fundIdl;
         };
 
         # Diagnostic probes exposed as flake apps so they can be invoked
