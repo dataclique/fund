@@ -20,6 +20,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };
+
+    # Newer nixpkgs for packages the primary pin predates (e.g. surfpool).
+    # The primary nixpkgs is coupled to the cargo-build-sbf shim
+    # (platform-tools must match its solana-cli), so it can't be bumped
+    # casually. Pinned to an explicit nixpkgs-unstable rev; bump freely.
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/8c3cede7ddc26bd659d2d383b5610efbd2c7a16e";
   };
 
   outputs =
@@ -40,6 +46,22 @@
           inherit system;
           overlays = [ rust-overlay.overlays.default ];
         };
+
+        pkgsUnstable = inputs.nixpkgs-unstable.legacyPackages.${system};
+
+        # Forward-looking guard for the surfpool dev-shell dependency. In the
+        # current nixpkgs-unstable pin surfpool builds on every default system,
+        # so this is presently a no-op; a future pin bump could drop the
+        # attribute, restrict its platforms, or mark it broken/unfree. `or null`
+        # handles a missing attribute; `meta.available` folds in platforms,
+        # broken, unfree, and insecure — so an unavailable surfpool is omitted
+        # (mirroring the `platformToolsAsset` pattern below) rather than
+        # aborting flake evaluation.
+        surfpoolPkg =
+          let
+            pkg = pkgsUnstable.surfpool or null;
+          in
+          if pkg != null && (pkg.meta.available or false) then pkg else null;
 
         rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
@@ -199,7 +221,12 @@
                   pkg-config
                   openssl
                   nushell
-                ]);
+                ])
+                # anchor localnet's default validator; from the newer nixpkgs
+                # input (the primary pin predates the package). Guarded like the
+                # SBF tooling above so systems without surfpool omit it rather
+                # than abort flake evaluation.
+                ++ pkgs.lib.optional (surfpoolPkg != null) surfpoolPkg;
 
               languages = {
                 nix.enable = true;

@@ -181,82 +181,86 @@ with `./scripts/cargo-build-sbf.nu` to make builds **offline and pinned**.
    `platformToolsVersion` and the asset `sha256`. Nix downloads + extracts the
    tarball into the store once; CI / contributors share the cache.
 2. **Materializes a writable copy** under
-   `.devenv/sbf-home/.cache/solana/v<X>/platform-tools/`. cargo-build-sbf
-   writes marker files in there, so a read-only nix-store symlink isn't
-   enough — the script `cp -r` + `chmod -R u+w`.
-3. **Shims `rust/bin/rustc`.** cargo-build-sbf 3.0.12 validates the toolchain
-   by running `rustc --version` and matching the regex
+   `.devenv/sbf-home/.cache/solana/v<X>/platform-tools/`. cargo-build-sbf writes
+   marker files in there, so a read-only nix-store symlink isn't enough — the
+   script `cp -r` + `chmod -R u+w`.
+3. **Shims `rust/bin/rustc`.** cargo-build-sbf 3.0.12 validates the toolchain by
+   running `rustc --version` and matching the regex
    `(rustc [0-9]+\.[0-9]+\.[0-9]+).*toolchain-v`. The released platform-tools
    rustc only prints `rustc 1.89.0-dev`, without the `toolchain-v` marker, so
    the check fails and reports "Solana toolchain is corrupted". The shim
-   re-emits `rustc 1.89.0-dev toolchain-v<X>` for `--version` only; every
-   other invocation execs the real rustc (renamed to `rustc.real`).
-4. **Prepends `platform-tools/rust/bin/` to `PATH`** so cargo-build-sbf and
-   the `cargo` it spawns both pick up the Solana rustc (the one with the
+   re-emits `rustc 1.89.0-dev toolchain-v<X>` for `--version` only; every other
+   invocation execs the real rustc (renamed to `rustc.real`).
+4. **Prepends `platform-tools/rust/bin/` to `PATH`** so cargo-build-sbf and the
+   `cargo` it spawns both pick up the Solana rustc (the one with the
    `sbpf-solana-solana` target).
 5. **Calls cargo-build-sbf with `--skip-tools-install --no-rustup-override`.**
-   Skip-tools-install keeps it off the network; no-rustup-override is
-   mandatory because rustup is not in the dev shell (cargo-build-sbf
-   otherwise tries to install a `+solana` rustup toolchain).
+   Skip-tools-install keeps it off the network; no-rustup-override is mandatory
+   because rustup is not in the dev shell (cargo-build-sbf otherwise tries to
+   install a `+solana` rustup toolchain).
 6. **Strips the leading `build-sbf` arg** that anchor injects (because
    cargo-build-sbf is a cargo extension and gets re-invoked with its own
    subcommand name as `argv[1]`).
-7. **Sets `HOME` to `.devenv/sbf-home/`** so cargo-build-sbf's caches never
-   leak into the user's actual home.
+7. **Sets `HOME` to `.devenv/sbf-home/`** so cargo-build-sbf's caches never leak
+   into the user's actual home.
 
 ### Version bumping
 
 When `solana-cli` in nixpkgs (or the platform-tools release we want to use)
-moves, update both `platformToolsVersion` and the asset `sha256` in
-`flake.nix`. The wrapper's tests in `scripts/cargo-build-sbf.test.nu` are
-version-agnostic; they exercise the shim and copy logic against tempdirs.
+moves, update both `platformToolsVersion` and the asset `sha256` in `flake.nix`.
+The wrapper's tests in `scripts/cargo-build-sbf.test.nu` are version-agnostic;
+they exercise the shim and copy logic against tempdirs.
 
 ### Known unresolved issue: anchor-lang 1.0.x vs platform-tools v1.51
 
 `anchor-lang = "1.0.2"` (matching the `anchor` CLI version from nixpkgs)
 transitively requires several crates whose published manifests use the
 `edition2024` cargo feature (e.g. `cpufeatures 0.3`, `digest 0.11`,
-`crypto-common 0.2`, several `solana-*` 3.x crates). cargo 1.84 — the
-cargo that ships inside `platform-tools v1.51` — cannot parse manifests
-that opt in to `edition2024`, so `cargo metadata` / `cargo build` fail
-during the `anchor build` step with:
+`crypto-common 0.2`, several `solana-*` 3.x crates). cargo 1.84 — the cargo that
+ships inside `platform-tools v1.51` — cannot parse manifests that opt in to
+`edition2024`, so `cargo metadata` / `cargo build` fail during the
+`anchor build` step with:
 
 > error: feature `edition2024` is required
 >
-> The package requires the Cargo feature called `edition2024`, but that
-> feature is not stabilized in this version of Cargo (1.84.0).
+> The package requires the Cargo feature called `edition2024`, but that feature
+> is not stabilized in this version of Cargo (1.84.0).
 
-Setting `resolver = "3"` and `rust-version = "1.84.0"` on the workspace
-does **not** help: the MSRV-aware resolver still lands on `cpufeatures
-0.3.0` (the lowest version the rest of the dep graph accepts), and that
-version requires Rust 1.85+. The dep graph of anchor-lang 1.0.x has no
-1.84-compatible solution.
+Setting `resolver = "3"` and `rust-version = "1.84.0"` on the workspace does
+**not** help: the minimum-supported-Rust-version (MSRV)-aware resolver still
+lands on `cpufeatures
+0.3.0` (the lowest version the rest of the dep graph
+accepts), and that version requires Rust 1.85+. The dep graph of anchor-lang
+1.0.x has no 1.84-compatible solution.
 
-Resolving this is a project-level version decision, **not** a wrapper
-fix:
-- **Downgrade `anchor-lang`** to an older version whose deps fit under
-  cargo 1.84 (the `0.31.x` line is the obvious candidate). This also
-  means using an `anchor` CLI to match.
-- **OR upgrade the SBF toolchain**: bump `solana-cli` in nixpkgs (or
-  override it in `flake.nix`) to a release whose platform-tools ships
-  cargo 1.85+. cargo-build-sbf's internal version regex will need to be
-  satisfied by the corresponding rustc — the shim already covers this
-  for arbitrary `toolchain-v<X>` markers.
+Resolving this is a project-level version decision, **not** a wrapper fix:
 
-Pick a direction, then run `nix run .#regenerate-cargo-lock-sbf` to
-re-pin the lockfile and `nix run .#probe-cargo-build-sbf -- --clean
---manifest-path programs/fund/Cargo.toml` to verify the build.
+- **Downgrade `anchor-lang`** to an older version whose deps fit under cargo
+  1.84 (the `0.31.x` line is the obvious candidate). This also means using an
+  `anchor` CLI to match.
+- **OR upgrade the SBF toolchain**: bump `solana-cli` in nixpkgs (or override it
+  in `flake.nix`) to a release whose platform-tools ships cargo 1.85+.
+  cargo-build-sbf's internal version regex will need to be satisfied by the
+  corresponding rustc — the shim already covers this for arbitrary
+  `toolchain-v<X>` markers.
+
+Pick a direction, then run `nix run .#regenerate-cargo-lock-sbf` to re-pin the
+lockfile and
+`nix run .#probe-cargo-build-sbf -- --clean
+--manifest-path programs/fund/Cargo.toml`
+to verify the build.
 
 ### Things we tried that don't work
 
-- **Symlinking the nix store path** instead of copying: cargo-build-sbf wants
-  to write into the install dir; read-only fails.
+- **Symlinking the nix store path** instead of copying: cargo-build-sbf wants to
+  write into the install dir; read-only fails.
 - **Unwrapped rustc** (just the released `rust/bin/rustc`): fails the
-  `toolchain-v` regex; cargo-build-sbf reports "Solana toolchain is
-  corrupted".
-- **Setting `RUSTC` env**: cargo-build-sbf logs `Removed RUSTC from cargo
-  environment` and drops it before spawning cargo, so RUSTC only affects its
-  own version-probe — the real compile then can't find a Solana rustc.
+  `toolchain-v` regex; cargo-build-sbf reports "Solana toolchain is corrupted".
+- **Setting `RUSTC` env**: cargo-build-sbf logs
+  `Removed RUSTC from cargo
+  environment` and drops it before spawning cargo,
+  so RUSTC only affects its own version-probe — the real compile then can't find
+  a Solana rustc.
 - **Letting cargo-build-sbf manage the install** (drop the shim, drop
   `--skip-tools-install`): subject to network timeouts on the platform-tools
   download (`reqwest::Error { kind: Decode, source: TimedOut }`), which is
