@@ -20,6 +20,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };
+
+    # Newer nixpkgs for packages the primary pin predates (e.g. surfpool).
+    # The primary nixpkgs is coupled to the cargo-build-sbf shim
+    # (platform-tools must match its solana-cli), so it can't be bumped
+    # casually. Pinned to an explicit nixpkgs-unstable rev; bump freely.
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/8c3cede7ddc26bd659d2d383b5610efbd2c7a16e";
   };
 
   outputs =
@@ -40,6 +46,8 @@
           inherit system;
           overlays = [ rust-overlay.overlays.default ];
         };
+
+        pkgsUnstable = inputs.nixpkgs-unstable.legacyPackages.${system};
 
         rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
@@ -199,7 +207,12 @@
                   pkg-config
                   openssl
                   nushell
-                ]);
+                ])
+                ++ [
+                  # anchor localnet's default validator; from the newer
+                  # nixpkgs input (the primary pin predates the package).
+                  pkgsUnstable.surfpool
+                ];
 
               languages = {
                 nix.enable = true;
