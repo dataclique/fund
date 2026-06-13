@@ -49,7 +49,25 @@ bun run lint:fix
 nix develop
 ```
 
-Pre-commit hooks (via `git-hooks.nix`) run `nixfmt`, `nil`, `cargo fmt`, `prettier`, and `taplo`. Run `nix flake check` to invoke them outside a commit.
+Pre-commit hooks (via `git-hooks.nix`; the authoritative list is `hooks.nix`) run `nil`, `nixfmt`, `statix`, `deadnix`, `cargo fmt`, `prettier`, and `taplo`. Run `nix flake check` to invoke them outside a commit.
+
+## Version control (GitButler)
+
+This repo uses the GitButler CLI (`but`) for all version-control write
+operations (commits, branches, push). Conventions:
+
+- **Pre-commit hooks:** `but commit` runs them. If you must `but amend`/`but rub`
+  (which skip hooks), run `nix flake check` afterward and fold in any fixes
+  before pushing.
+- **Commit messages:** lowercase; use conventional prefixes where they fit —
+  `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`. Explain _why_ in
+  the body. Never add "Generated with ..." or co-author trailers.
+- **Branch names:** `<type>/<kebab-description>`. Always pass an explicit name
+  to `but branch new`.
+
+The dev shell's generated gitbutler skill (`.claude/skills/gitbutler`, via the
+but.nix `devenvModule` in `flake.nix`) points here — this section is the
+source of truth.
 
 ## Test architecture (important)
 
