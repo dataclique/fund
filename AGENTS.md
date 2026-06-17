@@ -1,14 +1,18 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
+(References written as `@docs/<file>` are agent-tooling import directives:
+supported agents load the referenced repo-relative file together with this
+one. Read them as plain repo paths.)
 
 ## Practices that apply repo-wide
 
 - **"Document" always means in this repo.** Notes, learnings, conventions,
   rationale, and rules belong in tracked markdown files (this file,
-  `programs/fund/README.md`, ADRs under `adrs/`, or a dedicated doc). Agent
-  memory, scratchpads, or `.tmp/` files do **not** count as documentation —
-  the next reader (human or agent) will not see them.
+  `programs/fund/README.md`, `programs/fund/SPEC.md`, ADRs under `adrs/`, or
+  a dedicated doc). Agent memory, scratchpads, or `.tmp/` files do **not**
+  count as documentation — the next reader (human or agent) will not see
+  them.
 - **Non-trivial shell logic lives in `./scripts/<name>.nu` with a paired
   `./scripts/<name>.test.nu`.** "Non-trivial" is anything beyond ~3 lines, any
   command with non-obvious quoting/escaping, or any one-shot probe that might
@@ -17,13 +21,74 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   inline bash inside `flake.nix` strings or as `Bash` tool commands for
   anything more than read-only one-liners (`ls`, `git status`, `cargo check`).
 
+## Feature workflow
+
+Every new feature of the on-chain program follows the same loop. Do not
+skip steps or merge phases — each step exists to catch a different class
+of mistake.
+
+1. **Spec the feature in `programs/fund/SPEC.md`.** Add a new section
+   describing the model, instruction signature(s), accounts touched,
+   error conditions, and a mermaid sequence diagram. Keep the spec
+   incremental — only introduce concepts the current feature needs;
+   list everything else under "Not yet specified". If the spec
+   introduces a non-obvious design choice (share-burn timing, fee
+   accrual model, etc.), call it out explicitly so the next reader can
+   tell intent from accident.
+2. **Update the interface** — the Rust types, account structs, and
+   instruction handler signatures — to match the spec. Do **not**
+   implement the logic yet; the handler body should compile but be a
+   stub (`unimplemented!()`, `todo!()`, or just enough to return
+   `Ok(())`). This step is purely about shape: structs, accounts,
+   constraints, error variants.
+3. **Write a failing test.** Add a `programs/fund/tests/*.rs` litesvm
+   integration test (see the "Test architecture" section below) that
+   exercises the feature end-to-end against a freshly compiled
+   `fund.so`. Run `anchor build`, then run the test and confirm it
+   actually fails for the reason you expect (`unimplemented!` panic,
+   wrong balance, wrong account state — not "fails to compile" or
+   "fails on setup unrelated to the feature").
+4. **Implement** the handler body until the test passes. Don't change
+   the test to make it pass unless the spec changed; if the spec needs
+   to change, go back to step 1.
+5. **Confirm the test passes** (and any previously-passing tests still
+   do — run `cargo test --workspace`), and **walk every new or modified
+   `#[derive(Accounts)]` struct through the checklist in
+   @docs/sealevel-attacks.md** — the security review is a hard gate,
+   not a post-merge follow-up (see "Security" below).
+6. **Commit and push**, then move to the next feature.
+
+**A feature spans at least two PRs (sometimes more), as a stack:**
+
+- **Contract PR** — steps 1-3: the SPEC section, the interface (stubbed
+  handlers/account structs/error variants), and the failing `litesvm`
+  test(s). This PR's CI is **red on purpose** — the failing tests are the
+  executable contract for the behavior the feature must exhibit.
+- **Implementation PR** — step 4, stacked on the contract PR: the handler
+  bodies that turn the red tests green. CI passes; the green run proves the
+  implementation fulfills exactly the contract the tests defined.
+
+Split further when a spec or implementation is large (one contract PR, then
+several implementation PRs). A preliminary docs-only PR (the SPEC section
+plus supporting reference docs) may precede the contract PR when the spec
+deserves standalone review; the stubbed interface and failing tests must
+still land as a red contract PR that the implementation PR stacks on.
+**Never collapse a feature into a single tests-plus-implementation PR** —
+the whole point is that the red-to-green transition is visible in CI and
+reviewable as distinct steps. Smart-contract bugs are catastrophic; this
+split is a hard gate, not a preference.
+
+When you (the agent) are working on a feature, surface which step
+you're in before doing it ("specifying X next", "writing the failing
+test for X", etc.) so the user can intercept at the right point.
+
 ## Project
 
 Anchor-based Solana program named `fund`. Single on-chain program, Cargo workspace, with a TypeScript app/migrations side managed via bun.
 
 This repo is split off from the main monorepo specifically because Solana tooling isn't compatible with everything we use over there. The standing rule that follows from that: **always succumb to whatever Solana tooling wants from us.** Match its version pins, directory layout, env-var conventions, and config defaults rather than fighting them — concretely, if `cargo-build-sbf` expects platform-tools at `~/.cache/solana/v<X>/`, pin v<X> in the flake; don't pick a different version and try to make Solana like it.
 
-- Program ID: `5nNVyzESLk4QNQh7HgxAAwFmHnN37WUz1aCttBLwFo2e` (declared both in `programs/fund/src/lib.rs` and `Anchor.toml`'s `[programs.localnet]` — keep in sync)
+- Program ID: `8FUTArRdDgGDTYbnBMrzB7mBTwLrYpJDTzWY4d62GpCD` (declared both in `programs/fund/src/lib.rs` and `Anchor.toml`'s `[programs.localnet]`, and must match `target/deploy/fund-keypair.json` — keep all three in sync via `anchor keys sync`)
 - Anchor toolchain: `package_manager = "bun"` (not yarn/npm)
 - Rust toolchain pinned via `rust-toolchain.toml` (1.95.0)
 - Dev shell provided by Nix flake + devenv (`flake.nix`); `.envrc` loads it via direnv
@@ -39,7 +104,7 @@ anchor build
 cargo test
 
 # Run a single test
-cargo test --package fund --test test_initialize -- test_initialize --exact
+cargo test --package fund --test test_create_fund -- create_fund_initializes_fund_vault_and_shares_mint --exact
 
 # Lint / format JS/TS
 bun run lint
@@ -73,7 +138,7 @@ source of truth.
 
 Tests do **not** use `anchor test`. They use [`litesvm`](https://docs.rs/litesvm) directly from Rust integration tests under `programs/fund/tests/`.
 
-The pattern (`tests/test_initialize.rs`):
+The pattern (`tests/test_create_fund.rs`):
 
 1. `include_bytes!("../../../target/deploy/fund.so")` — pulls the compiled BPF binary at compile time.
 2. `LiteSVM::new()` + `svm.add_program(program_id, bytes)` — loads it into an in-memory SVM.
@@ -86,14 +151,16 @@ The pattern (`tests/test_initialize.rs`):
 `programs/fund/src/`:
 
 - `lib.rs` — `declare_id!` and the `#[program] mod fund { ... }` block. Each public program function is a thin delegate to `instructions::<name>::handler`.
-- `instructions/` + `instructions.rs` — one file per instruction; the parent module re-exports with `pub use <name>::*` so `Initialize` (account context) and `handler` are reachable as `fund::Initialize` / `fund::initialize::handler`.
+- `instructions/` + `instructions.rs` — one file per instruction; the parent module re-exports with `pub use <name>::*` so `CreateFund` (account context) and Anchor's generated client-accounts modules reach the crate root. Every module's `handler` collides in the glob (expected, lint-allowed) — handlers are always called module-qualified (`<name>::handler`).
 - `state.rs` — account state structs (currently empty).
 - `constants.rs`, `error.rs` — shared constants and `#[error_code]` enums.
 
-When adding a new instruction:
+When adding a new instruction (code-layout mechanics only — the process,
+including spec, failing test, and security review, is the "Feature
+workflow" above):
 
 1. Create `programs/fund/src/instructions/<name>.rs` with `#[derive(Accounts)] pub struct <Name>` and `pub fn handler(...)`.
-2. Add `pub mod <name>; pub use <name>::*;` to `instructions.rs`.
+2. Add `pub mod <name>; pub use <name>::*;` (with `#[allow(ambiguous_glob_reexports)]`) to `instructions.rs`.
 3. Add a thin wrapper inside `#[program] mod fund` in `lib.rs` that calls `<name>::handler(ctx, ...)`.
 
 ## Wallet / cluster
@@ -194,6 +261,15 @@ re-pin the lockfile and `nix run .#probe-cargo-build-sbf -- --clean
   `--skip-tools-install`): subject to network timeouts on the platform-tools
   download (`reqwest::Error { kind: Decode, source: TimedOut }`), which is
   exactly what the pre-fetch is meant to avoid.
+
+## Anchor framework
+
+`fund` is an Anchor program. Before touching `programs/fund/src/`, read
+@docs/anchor.md — it covers the four core macros (`declare_id!`,
+`#[program]`, `#[derive(Accounts)]`, `#[account]`), account validation,
+the 8-byte discriminator, and the IDL/client codegen flow. Notably:
+Anchor does **not** care about `.rs` file names inside
+`instructions/` — they're a project convention, not a framework rule.
 
 ## Security
 
