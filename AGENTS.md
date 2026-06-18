@@ -1,14 +1,15 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
 
 ## Practices that apply repo-wide
 
 - **"Document" always means in this repo.** Notes, learnings, conventions,
   rationale, and rules belong in tracked markdown files (this file,
-  `programs/fund/README.md`, ADRs under `adrs/`, or a dedicated doc). Agent
-  memory, scratchpads, or `.tmp/` files do **not** count as documentation —
-  the next reader (human or agent) will not see them.
+  `programs/fund/README.md`, `programs/fund/SPEC.md`, ADRs under `adrs/`, or
+  a dedicated doc). Agent memory, scratchpads, or `.tmp/` files do **not**
+  count as documentation — the next reader (human or agent) will not see
+  them.
 - **Non-trivial shell logic lives in `./scripts/<name>.nu` with a paired
   `./scripts/<name>.test.nu`.** "Non-trivial" is anything beyond ~3 lines, any
   command with non-obvious quoting/escaping, or any one-shot probe that might
@@ -16,6 +17,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   derivation (`checkPhase`) so a broken script fails the build. Do not write
   inline bash inside `flake.nix` strings or as `Bash` tool commands for
   anything more than read-only one-liners (`ls`, `git status`, `cargo check`).
+
+## Feature workflow
+
+Every new feature of the on-chain program follows the same loop. Do not
+skip steps or merge phases — each step exists to catch a different class
+of mistake.
+
+1. **Spec the feature in `programs/fund/SPEC.md`.** Add a new section
+   describing the model, instruction signature(s), accounts touched,
+   error conditions, and a mermaid sequence diagram. Keep the spec
+   incremental — only introduce concepts the current feature needs;
+   list everything else under "Not yet specified". If the spec
+   introduces a non-obvious design choice (share-burn timing, fee
+   accrual model, etc.), call it out explicitly so the next reader can
+   tell intent from accident.
+2. **Update the interface** — the Rust types, account structs, and
+   instruction handler signatures — to match the spec. Do **not**
+   implement the logic yet; the handler body should compile but be a
+   stub (`unimplemented!()`, `todo!()`, or just enough to return
+   `Ok(())`). This step is purely about shape: structs, accounts,
+   constraints, error variants.
+3. **Security review (hard gate).** Walk every new or modified
+   `#[derive(Accounts)]` struct from step 2 through the checklist in
+   @docs/sealevel-attacks.md, confirming each Solana/Anchor attack
+   class is handled (signer, owner, account matching, arbitrary CPI,
+   PDA seeds and canonical bump, duplicate-mutable, init re-entry).
+   This gate must pass before any test or implementation work begins —
+   an unreviewed account struct is a blocking defect, not a post-merge
+   follow-up.
+4. **Write a failing test.** Add a `programs/fund/tests/*.rs` litesvm
+   integration test that exercises the feature end-to-end against a
+   freshly compiled `fund.so`. Run it and confirm it actually fails for
+   the reason you expect (`unimplemented!` panic, wrong balance,
+   wrong account state — not "fails to compile" or "fails on setup
+   unrelated to the feature").
+5. **Implement** the handler body until the test passes. Don't change
+   the test to make it pass unless the spec changed; if the spec needs
+   to change, go back to step 1.
+6. **Confirm the test passes** (and any previously-passing tests still
+   do). Run `anchor build` first, then `cargo test --workspace` — the
+   litesvm tests `include_bytes!` `target/deploy/fund.so`, so without a
+   fresh `anchor build` they either fail to compile or exercise a stale
+   binary and report false results.
+7. **Commit and push**, then move to the next feature.
+
+When you (the agent) are working on a feature, surface which step
+you're in before doing it ("specifying X next", "writing the failing
+test for X", etc.) so the user can intercept at the right point.
 
 ## Project
 
@@ -90,7 +139,9 @@ The pattern (`tests/test_initialize.rs`):
 - `state.rs` — account state structs (currently empty).
 - `constants.rs`, `error.rs` — shared constants and `#[error_code]` enums.
 
-When adding a new instruction:
+When adding a new instruction (code-layout mechanics only — the full
+process, including spec, security review, failing test, and
+implementation, is the "Feature workflow" above):
 
 1. Create `programs/fund/src/instructions/<name>.rs` with `#[derive(Accounts)] pub struct <Name>` and `pub fn handler(...)`.
 2. Add `pub mod <name>; pub use <name>::*;` to `instructions.rs`.

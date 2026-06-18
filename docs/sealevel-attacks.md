@@ -18,7 +18,7 @@ account whose role is "must approve this action" must be a `Signer`.
 
 ## Account Data Matching
 
-The handler deserialises an account (e.g. an SPL token account) and acts on its
+The handler deserialises an account (e.g. an SPL (Solana Program Library) token account) and acts on its
 contents without validating that the related accounts agree with each other —
 for example, reading a token balance without confirming the passed `authority`
 is actually the token's `owner`. Anchor's loose account types (`AccountInfo`)
@@ -61,7 +61,7 @@ brand-new account and fails if the account already exists. For
 re-initialisation across instructions, prefer `init_if_needed` only with
 explicit guards, or store an "is_initialized" discriminator and check it.
 
-## Arbitrary CPI
+## Arbitrary CPI (Cross-Program Invocation)
 
 The handler invokes a "token program" or other dependency that was passed in by
 the caller, without verifying the program ID. An attacker substitutes a
@@ -83,7 +83,7 @@ same type must be different.
 
 ## Bump Seed Canonicalization
 
-The handler accepts a PDA bump from the caller and uses it to derive or sign
+The handler accepts a Program Derived Address (PDA) bump from the caller and uses it to derive or sign
 for an account, instead of computing the canonical bump itself. Multiple bump
 values can produce valid PDAs for the same seeds, so accepting an arbitrary
 bump lets an attacker forge a non-canonical address that bypasses the program's
