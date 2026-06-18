@@ -1,18 +1,20 @@
-# ADR 0001 — Donation-resistant share pricing
+# Architecture Decision Record (ADR) 0001 — Donation-resistant share pricing
 
 Status: **proposed** (awaiting review)
 
 Drives: [#9](https://github.com/data-cartel/fund/issues/9) (deposit inflation
-attack). Couples with the future NAV / off-vault AUM accounting feature.
+attack). Couples with the future net-asset-value (NAV) / off-vault
+assets-under-management (AUM) accounting feature.
 
 ## Context
 
-`deposit_handler` prices shares from `vault.amount`, the raw SPL balance of the
-vault token account. Anyone can transfer quote tokens directly into that account
-without minting shares, so the AUM that drives the share price is
-attacker-controllable. This is the classic ERC4626 first-depositor inflation
-attack (full write-up in #9): a 1-unit first deposit plus a large direct transfer
-lets an attacker deny or steal from later depositors.
+`deposit_handler` prices shares from `vault.amount`, the raw SPL (Solana Program
+Library) balance of the vault token account. Anyone can transfer quote tokens
+directly into that account without minting shares, so the AUM that drives the
+share price is attacker-controllable. This is the classic ERC-4626 (Ethereum
+tokenized-vault standard) first-depositor inflation attack (full write-up in
+#9): a 1-unit first deposit plus a large direct transfer lets an attacker deny
+or steal from later depositors.
 
 Two facts shape the decision:
 
@@ -28,18 +30,20 @@ Two facts shape the decision:
 
 ### A. Virtual shares + virtual assets offset (ERC4626-style)
 
-Price with a constant offset: `shares = amount * (supply + V_SHARES) /
-(aum_before + V_ASSETS)`. `V_ASSETS` fixes the unrecoverable fraction of any
-donation, while `V_SHARES = 10^offset` is what drives the attack cost: it
-raises the pricing precision, so rounding a victim deposit of size `D` down to
-zero shares takes a donation of roughly `D * V_SHARES / V_ASSETS`. For a
-reasonable offset the attack costs far more than it can capture.
+Price with a constant offset:
+`shares = amount * (supply + V_SHARES) /
+(aum_before + V_ASSETS)`. `V_ASSETS`
+fixes the unrecoverable fraction of any donation, while `V_SHARES = 10^offset`
+is what drives the attack cost: it raises the pricing precision, so rounding a
+victim deposit of size `D` down to zero shares takes a donation of roughly
+`D * V_SHARES / V_ASSETS`. For a reasonable offset the attack costs far more
+than it can capture.
 
 - Pro: minimal change (formula only), well-understood (OpenZeppelin default).
 - Con: still reads `vault.amount` as AUM, so it does **not** address off-vault
   accounting; only makes the attack costly, not impossible.
 
-### B. Internal asset accounting (`total_assets` on `Fund`)  — recommended
+### B. Internal asset accounting (`total_assets` on `Fund`) — recommended
 
 Track `total_assets` on the `Fund` account: increment on deposit, decrement on
 withdraw (and later adjust on fee accrual / NAV attestation). Price shares from
@@ -49,8 +53,8 @@ withdraw (and later adjust on fee accrual / NAV attestation). Price shares from
 - Pro: fully donation-proof; this is the same internal-AUM mechanism the
   off-vault NAV model needs anyway, so it is not throwaway work.
 - Con: `total_assets` must be maintained correctly across **every** value flow
-  (deposit, withdraw, fees, off-vault P&L) — a maintenance bug mis-prices shares.
-  The first-deposit rounding edge still needs a guard.
+  (deposit, withdraw, fees, off-vault profit and loss (P&L)) — a maintenance bug
+  mis-prices shares. The first-deposit rounding edge still needs a guard.
 
 ### C. Dead shares / minimum first deposit
 
@@ -61,12 +65,13 @@ Burn the first N shares, or require a minimum initial deposit.
 
 ## Recommendation
 
-**B, combined with a small virtual offset from A** for the first-deposit rounding
-edge. Rationale: the fund must track AUM internally to value off-vault positions,
-so making the share price depend on internal accounting (not `vault.amount`)
-eliminates the donation vector *and* lays the foundation for NAV attestation
-(the future fees / off-vault feature). The virtual offset neutralizes the
-first-depositor rounding manipulation that internal accounting alone still leaves.
+**B, combined with a small virtual offset from A** for the first-deposit
+rounding edge. Rationale: the fund must track AUM internally to value off-vault
+positions, so making the share price depend on internal accounting (not
+`vault.amount`) eliminates the donation vector _and_ lays the foundation for NAV
+attestation (the future fees / off-vault feature). The virtual offset
+neutralizes the first-depositor rounding manipulation that internal accounting
+alone still leaves.
 
 ## Consequences
 
@@ -97,14 +102,14 @@ Invariants:
 - A direct token transfer into the vault MUST NOT change any mint or burn quote.
   Only deposit, withdraw, fee accrual, and NAV attestation may move
   `total_assets`, and the accounted idle-quote component changes only through
-  program-mediated flows: NAV attestation may adjust only the off-vault
-  position component of `total_assets` as defined by the tier model in
+  program-mediated flows: NAV attestation may adjust only the off-vault position
+  component of `total_assets` as defined by the tier model in
   `0002-tiered-off-solana-nav-inclusion.md` (Tier-1 on-chain values and capped
   Tier-2 consensus reads), never unsolicited vault surplus (`vault.amount` in
   excess of the accounted idle-quote component of `total_assets`). Surplus
-  handling, if any, is a separate explicit decision. The reproduction tests
-  must show that donations made before and after a NAV update leave mint and
-  burn quotes unchanged.
+  handling, if any, is a separate explicit decision. The reproduction tests must
+  show that donations made before and after a NAV update leave mint and burn
+  quotes unchanged.
 - Minting rounds shares DOWN; burning rounds assets DOWN. Both round adverse to
   the actor and in favor of the remaining pool, so no sequence of operations can
   extract value through rounding.
@@ -115,26 +120,29 @@ the first deposit):
 - `V_ASSETS` — virtual asset offset.
 - `V_SHARES` — virtual share offset.
 
-Following OpenZeppelin's ERC4626 default, `V_ASSETS = 1` and `V_SHARES =
-10^offset` for a small decimals `offset`; the larger the offset, the costlier a
-donation attack. On Solana the offset also trades directly against capacity:
-SPL mint supply is `u64`, and with `V_ASSETS = 1` a deposit of `amount` quote
-units mints roughly `amount * 10^offset` share units, so the offset must
-satisfy `capacity * 10^offset <= u64::MAX`. With internal accounting as the
-primary defense, the offset only guards the rounding edge, so a small offset
-(0 or 1) suffices. The exact magnitudes are fixed in the SPEC by weighing the
-offset against the quote-token decimals, the fund capacity, and the u64
+Following OpenZeppelin's ERC4626 default, `V_ASSETS = 1` and
+`V_SHARES =
+10^offset` for a small decimals `offset`; the larger the offset, the
+costlier a donation attack. On Solana the offset also trades directly against
+capacity: SPL mint supply is `u64`, and with `V_ASSETS = 1` a deposit of
+`amount` quote units mints roughly `amount * 10^offset` share units, so the
+offset must satisfy `capacity * 10^offset <= u64::MAX`. With internal accounting
+as the primary defense, the offset only guards the rounding edge, so a small
+offset (0 or 1) suffices. The exact magnitudes are fixed in the SPEC by weighing
+the offset against the quote-token decimals, the fund capacity, and the u64
 share-supply ceiling. Any nonzero offset also breaks the SPEC's `create_fund`
-rule that the shares mint's decimals match the quote mint's (1 quote unit
-would mint `10^offset` share units); that SPEC statement must be revised — or
-the shares-mint decimals bumped by `offset` — when the offset is chosen.
+rule that the shares mint's decimals match the quote mint's (1 quote unit would
+mint `10^offset` share units); that SPEC statement must be revised — or the
+shares-mint decimals bumped by `offset` — when the offset is chosen.
 
 Formulas (checked integer arithmetic, no intermediate overflow). Here
 `total_shares` refers to `shares_mint.supply` — the SPL mint is the
 authoritative share counter; `Fund` gains no redundant share-supply field:
 
-- Mint: `shares_out = floor(deposit_amount * (total_shares + V_SHARES) / (total_assets + V_ASSETS))`
-- Burn: `assets_out = floor(shares_in     * (total_assets + V_ASSETS) / (total_shares + V_SHARES))`
+- Mint:
+  `shares_out = floor(deposit_amount * (total_shares + V_SHARES) / (total_assets + V_ASSETS))`
+- Burn:
+  `assets_out = floor(shares_in     * (total_assets + V_ASSETS) / (total_shares + V_SHARES))`
 
 Both formulas read `total_assets` and `total_shares` as they stand **before**
 this instruction's accounting update — the `aum_before` snapshot of the Options
@@ -149,9 +157,9 @@ the separate bases named in the Release gate below and formalized in ADR 0002.
 Zero-output guards (mandatory, checked before any transfer, mint, burn, or
 accounting update):
 
-- A deposit MUST fail if `shares_out == 0`. The existing
-  `FundError::ZeroShares` guard in `deposit_handler` is the precedent; it must
-  survive the formula change.
+- A deposit MUST fail if `shares_out == 0`. The existing `FundError::ZeroShares`
+  guard in `deposit_handler` is the precedent; it must survive the formula
+  change.
 - A share-in redemption MUST fail if `assets_out == 0` — no operation may
   consume a user's shares without returning at least one asset unit.
 
@@ -159,8 +167,8 @@ Both zero-output cases belong in the reproduction tests.
 
 State updates:
 
-- Deposit: `total_assets += deposit_amount`; the `mint_to` CPI raises
-  `shares_mint.supply` by `shares_out`.
+- Deposit: `total_assets += deposit_amount`; the `mint_to` Cross-Program
+  Invocation (CPI) raises `shares_mint.supply` by `shares_out`.
 - Withdraw: `total_assets -= assets_out`; the `burn` CPI lowers
   `shares_mint.supply` by `shares_in`.
 
@@ -185,10 +193,10 @@ Hard rule (must hold at all times, not an option):
   `redeemable_nav_redeem = verifiable_nav + floor(read_nav)` (the pessimistic,
   capped, slow-up-lagged Tier-2 floor), while deposits price against
   `redeemable_nav_deposit = verifiable_nav +` the fully-recognized (un-lagged,
-  un-floored) capped Tier-2 value taken at the adverse HIGH (or are quarantined per ADR
-  0002's stale-read deposit rule). The pessimistic `floor(read_nav)` prices
-  redemptions only and is **never** a deposit entry price — a deposit priced
-  at an understated NAV mints excess shares that capture value on
+  un-floored) capped Tier-2 value taken at the adverse HIGH (or are quarantined
+  per ADR 0002's stale-read deposit rule). The pessimistic `floor(read_nav)`
+  prices redemptions only and is **never** a deposit entry price — a deposit
+  priced at an understated NAV mints excess shares that capture value on
   re-recognition, the exact cheap-entry vector ADR 0002 neutralizes. Tier-3
   `attested_nav` MUST stay excluded from both mint and burn pricing, and
   vault-only `total_assets` is not an acceptable basis once off-vault exposure
@@ -199,9 +207,8 @@ Hard rule (must hold at all times, not an option):
 
 Release rule: off-vault enabled requires the ADR 0002 redeemable NAV; until it
 lands, off-vault stays feature-flag disabled. This makes the sequencing safe
-either way -- shipping the donation fix (vault-only `total_assets`) now is
-sound *because* off-vault stays disabled until the tiered redeemable-NAV model
-gates pricing. This section decides the sequencing question (ship the
-vault-only fix now vs design NAV inclusion first): ship now, with off-vault
-hard-gated. What remains open lives in ADR 0002's owner-ratification list, not
-here.
+either way -- shipping the donation fix (vault-only `total_assets`) now is sound
+_because_ off-vault stays disabled until the tiered redeemable-NAV model gates
+pricing. This section decides the sequencing question (ship the vault-only fix
+now vs design NAV inclusion first): ship now, with off-vault hard-gated. What
+remains open lives in ADR 0002's owner-ratification list, not here.
