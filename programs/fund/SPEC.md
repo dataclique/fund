@@ -2,7 +2,7 @@
 
 A `fund` is an on-chain managed investment vehicle. Investors deposit a
 single quote currency (which is always intended to be a stablecoin —
-typically USDC) into the fund's vault and receive fund-shares in
+typically USD Coin (USDC)) into the fund's vault and receive fund-shares in
 return. Shares are a fungible pro-rata claim on the fund's holdings,
 redeemable for quote currency at a later point.
 
@@ -18,8 +18,9 @@ implement them.
 ## Concepts
 
 - **Fund** — the top-level on-chain account. Holds the parameters set
-  at creation and the bumps needed to derive its child PDAs.
-- **Quote mint** — SPL token mint that investors deposit, e.g. the USDC
+  at creation and the bumps needed to derive its child Program Derived
+  Addresses (PDAs).
+- **Quote mint** — SPL (Solana Program Library) token mint that investors deposit, e.g. the USDC
   mint. Always a stablecoin in practice. A fund has exactly one quote
   mint, fixed at creation.
 - **Vault** — SPL token account in the quote mint, owned (authority) by
@@ -33,7 +34,7 @@ implement them.
   By design, on the **first deposit** share price is exactly `1` quote
   per share (i.e. the depositor receives `deposit_amount` shares). This
   is well-defined because the quote currency is a stablecoin — there is
-  no meaningful "starting NAV" to anchor against other than 1:1.
+  no meaningful "starting net asset value (NAV)" to anchor against other than 1:1.
 
 ## Fund parameters (set at creation, immutable in v0)
 
@@ -111,8 +112,8 @@ sequenceDiagram
 
 ### `deposit`
 
-Investor moves `amount` quote tokens from their own ATA into the
-vault, and receives freshly-minted shares.
+Investor moves `amount` quote tokens from their own Associated Token Account
+(ATA) into the vault, and receives freshly-minted shares.
 
 **Share math:**
 - If `shares_mint.supply == 0` (first deposit): investor receives

@@ -39,5 +39,6 @@ cargo test        # litesvm tests; depends on the .so produced above
 4. Walk the new `#[derive(Accounts)]` through the checklist in
    `../../docs/sealevel-attacks.md` before merging.
 
-For higher-level context (dev shell, toolchain, CI conventions) see the
+For higher-level context (dev shell, toolchain, continuous-integration (CI)
+conventions) see the
 repo root `../../CLAUDE.md`.
