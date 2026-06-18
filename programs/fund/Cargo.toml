@@ -27,6 +27,7 @@ anchor-spl = "0.31"
 [dev-dependencies]
 litesvm = "0.6"
 solana-sdk = "2"
+proptest = "1"
 
 
 [lints.rust]

@@ -125,6 +125,7 @@ fn build_fund(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     /// Builds a 32-byte name from `text`, zero-padded on the right.
     fn padded_name(text: &[u8]) -> [u8; 32] {
@@ -222,5 +223,189 @@ mod tests {
             validate_params(&params),
             Err(FundError::NonCanonicalName.into())
         );
+    }
+
+    // --- Property-based tests --------------------------------------------
+    //
+    // The example tests above pin specific cases; the proptests below assert
+    // the same invariants across the whole input space, so a regression that
+    // only shows up for some untried fee/name/bump combination still fails.
+
+    /// A canonical, non-empty name: 1..=32 non-zero bytes right-padded with
+    /// zeros — exactly the shape `validate_params` is meant to accept.
+    fn canonical_name() -> impl Strategy<Value = [u8; 32]> {
+        prop::collection::vec(1u8..=u8::MAX, 1..=32).prop_map(|bytes| {
+            let mut name = [0u8; 32];
+            name[..bytes.len()].copy_from_slice(&bytes);
+            name
+        })
+    }
+
+    /// A non-canonical name: a non-zero byte placed somewhere after a zero
+    /// byte, so the encoding is not canonically zero-padded.
+    fn non_canonical_name() -> impl Strategy<Value = [u8; 32]> {
+        (any::<[u8; 32]>(), 0usize..31).prop_flat_map(|(base, zero_at)| {
+            ((zero_at + 1)..32, 1u8..=u8::MAX).prop_map(move |(nonzero_at, byte)| {
+                let mut name = base;
+                name[zero_at] = 0;
+                name[nonzero_at] = byte;
+                name
+            })
+        })
+    }
+
+    /// Fully arbitrary parameters (any fee, any name, any caps/delays).
+    fn any_params() -> impl Strategy<Value = CreateFundParams> {
+        (
+            any::<[u8; 32]>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u64>(),
+            any::<u16>(),
+        )
+            .prop_map(
+                |(
+                    name,
+                    management_fee_bps,
+                    performance_fee_bps,
+                    capacity,
+                    withdrawal_delay_days,
+                )| {
+                    CreateFundParams {
+                        name,
+                        management_fee_bps,
+                        performance_fee_bps,
+                        capacity,
+                        withdrawal_delay_days,
+                    }
+                },
+            )
+    }
+
+    proptest! {
+        /// `build_fund` is a total field-preserving map: every parameter and
+        /// account key is copied through unchanged and each bump lands in its
+        /// own field, for any input.
+        #[test]
+        fn build_fund_preserves_all_fields(
+            manager_bytes in any::<[u8; 32]>(),
+            quote_bytes in any::<[u8; 32]>(),
+            params in any_params(),
+            fund_bump in any::<u8>(),
+            vault_bump in any::<u8>(),
+            shares_mint_bump in any::<u8>(),
+        ) {
+            let manager = Pubkey::new_from_array(manager_bytes);
+            let quote_mint = Pubkey::new_from_array(quote_bytes);
+            let fund = build_fund(
+                manager,
+                quote_mint,
+                &params,
+                CreateFundBumps {
+                    fund: fund_bump,
+                    vault: vault_bump,
+                    shares_mint: shares_mint_bump,
+                },
+            );
+            prop_assert_eq!(fund.manager, manager);
+            prop_assert_eq!(fund.quote_mint, quote_mint);
+            prop_assert_eq!(fund.name, params.name);
+            prop_assert_eq!(fund.management_fee_bps, params.management_fee_bps);
+            prop_assert_eq!(fund.performance_fee_bps, params.performance_fee_bps);
+            prop_assert_eq!(fund.capacity, params.capacity);
+            prop_assert_eq!(fund.withdrawal_delay_days, params.withdrawal_delay_days);
+            prop_assert_eq!(fund.fund_bump, fund_bump);
+            prop_assert_eq!(fund.vault_bump, vault_bump);
+            prop_assert_eq!(fund.shares_mint_bump, shares_mint_bump);
+        }
+
+        /// Any in-range fees combined with a canonical, non-empty name are
+        /// accepted, whatever the capacity or withdrawal delay.
+        #[test]
+        fn validate_accepts_in_range_fees_and_canonical_names(
+            name in canonical_name(),
+            management_fee_bps in 0u16..=MAX_FEE_BPS,
+            performance_fee_bps in 0u16..=MAX_FEE_BPS,
+            capacity in any::<u64>(),
+            withdrawal_delay_days in any::<u16>(),
+        ) {
+            let params = CreateFundParams {
+                name,
+                management_fee_bps,
+                performance_fee_bps,
+                capacity,
+                withdrawal_delay_days,
+            };
+            prop_assert!(validate_params(&params).is_ok());
+        }
+
+        /// A management fee above 100% is always rejected with `FeeTooHigh`,
+        /// regardless of the otherwise-valid parameters.
+        #[test]
+        fn validate_rejects_excessive_management_fee(
+            name in canonical_name(),
+            management_fee_bps in (MAX_FEE_BPS + 1)..=u16::MAX,
+            performance_fee_bps in 0u16..=MAX_FEE_BPS,
+        ) {
+            let params = CreateFundParams {
+                name,
+                management_fee_bps,
+                performance_fee_bps,
+                capacity: 0,
+                withdrawal_delay_days: 0,
+            };
+            prop_assert_eq!(validate_params(&params), Err(FundError::FeeTooHigh.into()));
+        }
+
+        /// A performance fee above 100% is always rejected with `FeeTooHigh`.
+        #[test]
+        fn validate_rejects_excessive_performance_fee(
+            name in canonical_name(),
+            management_fee_bps in 0u16..=MAX_FEE_BPS,
+            performance_fee_bps in (MAX_FEE_BPS + 1)..=u16::MAX,
+        ) {
+            let params = CreateFundParams {
+                name,
+                management_fee_bps,
+                performance_fee_bps,
+                capacity: 0,
+                withdrawal_delay_days: 0,
+            };
+            prop_assert_eq!(validate_params(&params), Err(FundError::FeeTooHigh.into()));
+        }
+
+        /// A name carrying a non-zero byte after a zero byte is never canonical
+        /// and is always rejected with `NonCanonicalName`, even with valid fees.
+        #[test]
+        fn validate_rejects_non_canonical_names(
+            name in non_canonical_name(),
+            management_fee_bps in 0u16..=MAX_FEE_BPS,
+            performance_fee_bps in 0u16..=MAX_FEE_BPS,
+        ) {
+            prop_assert!(!is_canonically_padded(&name));
+            let params = CreateFundParams {
+                name,
+                management_fee_bps,
+                performance_fee_bps,
+                capacity: 0,
+                withdrawal_delay_days: 0,
+            };
+            prop_assert_eq!(
+                validate_params(&params),
+                Err(FundError::NonCanonicalName.into())
+            );
+        }
+
+        /// `is_canonically_padded` matches the structural definition computed
+        /// independently: a name is canonical iff every byte from the first
+        /// zero onward is also zero.
+        #[test]
+        fn canonical_padding_matches_definition(name in any::<[u8; 32]>()) {
+            let expected = match name.iter().position(|&byte| byte == 0) {
+                None => true,
+                Some(first_zero) => name[first_zero..].iter().all(|&byte| byte == 0),
+            };
+            prop_assert_eq!(is_canonically_padded(&name), expected);
+        }
     }
 }
