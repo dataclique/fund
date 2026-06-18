@@ -123,7 +123,9 @@ Investor moves `amount` quote tokens from their own Associated Token Account
   `shares_out = amount * shares_mint.supply / vault.amount`, where
   `vault.amount` is read **before** the inbound transfer and the
   division is **floor** integer division (rounds down, in the fund's
-  favor).
+  favor). The multiplication is overflow-checked: if
+  `amount.checked_mul(shares_mint.supply)` is `None` the deposit fails
+  (`ArithmeticOverflow`).
 - If the floored `shares_out == 0`, the deposit fails (`ZeroSharesOut`)
   — a dust deposit must never transfer quote tokens without minting
   shares, silently donating value to existing holders.
@@ -140,9 +142,9 @@ sequenceDiagram
 
     Investor->>Program: deposit(amount)
     Program->>Program: require vault.amount.checked_add(amount) <= capacity
-    Program->>Program: shares_out = amount (first deposit) or floor(amount * supply / aum_before)
+    Program->>Program: shares_out = amount (first deposit) or floor(amount * supply / vault.amount)
     Program->>Program: require shares_out > 0
-    Program->>Token: transfer amount from investor_ata to Vault
+    Program->>Token: transfer amount from investor_quote_ata to Vault
     Program->>Token: mint shares_out to investor_shares_ata (authority = Fund PDA)
     Program-->>Investor: shares_out
 ```
@@ -160,9 +162,11 @@ sequenceDiagram
 - token program, associated-token program, system program.
 
 **Error conditions**
-- `ArithmeticOverflow` — `vault.amount.checked_add(amount)` is `None`.
-- `CapacityExceeded` — `vault.amount + amount` exceeds `capacity`
-  (checked before the inbound transfer).
+- `ArithmeticOverflow` — `vault.amount.checked_add(amount)` is `None`,
+  or `amount.checked_mul(shares_mint.supply)` overflows in the share
+  math.
+- `CapacityExceeded` — the sum from `vault.amount.checked_add(amount)`
+  exceeds `capacity` (checked before the inbound transfer).
 - `ZeroSharesOut` — the floored share math yields `shares_out == 0`.
 - `InsufficientFunds` — `investor_quote_ata` holds fewer than `amount`
   quote tokens; the SPL transfer fails.
