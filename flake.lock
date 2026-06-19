@@ -12,13 +12,13 @@
       "locked": {
         "lastModified": 1780757267,
         "narHash": "sha256-F2F01nY2Po/sMyqOzowhsk71IcGyO8wHqwZG2T1DP2A=",
-        "owner": "data-cartel",
+        "owner": "dataclique",
         "repo": "but.nix",
         "rev": "9168f0d163f90748d31236004d61c3da0881d8d5",
         "type": "github"
       },
       "original": {
-        "owner": "data-cartel",
+        "owner": "dataclique",
         "repo": "but.nix",
         "type": "github"
       }

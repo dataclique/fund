@@ -15,7 +15,7 @@ Solana toolchain pins versions the main monorepo can't use.
 
 The dev shell (Nix flake + devenv, auto-loaded via direnv) provides the Solana
 toolchain, the offline `cargo-build-sbf` shim, and the GitButler CLI (`but`,
-sourced from the [`but.nix`](https://github.com/data-cartel/but.nix) flake
+sourced from the [`but.nix`](https://github.com/dataclique/but.nix) flake
 input — in review).
 
 ```bash
