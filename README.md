@@ -2,7 +2,8 @@
 
 Solana program (Anchor) for the moneymentum fund/vault: depositors swap a quote
 token (e.g. USDC) for share tokens, capital is deployed to Turnkey-controlled
-trading wallets across venues, and NAV-based accounting governs share pricing,
+trading wallets across venues, and on-chain internal accounting (`total_assets`,
+with a tiered cross-chain NAV model for off-vault value) governs share pricing,
 fees, and a two-phase withdrawal. It lives in its own repository because the
 Solana toolchain pins versions the main monorepo can't use.
 
@@ -43,5 +44,12 @@ architecture section in [`AGENTS.md`](AGENTS.md)).
   rules.
 - [`docs/sealevel-attacks.md`](docs/sealevel-attacks.md) -- the security
   checklist every instruction is reviewed against before merge.
-- `docs/anchor.md` and `programs/fund/SPEC.md` -- Anchor essentials and the
+- [`docs/security-design.md`](docs/security-design.md) -- fund security
+  architecture; grounds the design against real DeFi incidents and tracks the
+  open decisions that gate implementation.
+- [`docs/anchor.md`](docs/anchor.md) and
+  [`programs/fund/SPEC.md`](programs/fund/SPEC.md) -- Anchor essentials and the
   fund/vault design.
+- [`adrs/`](adrs/) -- architecture decision records: donation-resistant share
+  pricing (0001), tiered off-Solana NAV inclusion (0002), permissionless NAV
+  attestation (0003).
