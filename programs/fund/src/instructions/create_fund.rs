@@ -73,15 +73,15 @@ pub fn handler(ctx: Context<CreateFund>, params: CreateFundParams) -> Result<()>
 fn validate_params(params: &CreateFundParams) -> Result<()> {
     require!(
         params.management_fee_bps <= MAX_FEE_BPS,
-        FundError::FeeTooHigh
+        FundError::ManagementFeeTooHigh
     );
     require!(
         params.performance_fee_bps <= MAX_FEE_BPS,
-        FundError::FeeTooHigh
+        FundError::PerformanceFeeTooHigh
     );
     require!(
         params.name.iter().any(|&byte| byte != 0),
-        FundError::NonCanonicalName
+        FundError::EmptyName
     );
     require!(
         is_canonically_padded(&params.name),
@@ -185,14 +185,20 @@ mod tests {
     fn validate_params_rejects_management_fee_above_one_hundred_percent() {
         let mut params = sample_params();
         params.management_fee_bps = MAX_FEE_BPS + 1;
-        assert_eq!(validate_params(&params), Err(FundError::FeeTooHigh.into()));
+        assert_eq!(
+            validate_params(&params),
+            Err(FundError::ManagementFeeTooHigh.into())
+        );
     }
 
     #[test]
     fn validate_params_rejects_performance_fee_above_one_hundred_percent() {
         let mut params = sample_params();
         params.performance_fee_bps = MAX_FEE_BPS + 1;
-        assert_eq!(validate_params(&params), Err(FundError::FeeTooHigh.into()));
+        assert_eq!(
+            validate_params(&params),
+            Err(FundError::PerformanceFeeTooHigh.into())
+        );
     }
 
     #[test]
@@ -219,10 +225,7 @@ mod tests {
     fn validate_params_rejects_an_all_zero_name() {
         let mut params = sample_params();
         params.name = [0u8; 32];
-        assert_eq!(
-            validate_params(&params),
-            Err(FundError::NonCanonicalName.into())
-        );
+        assert_eq!(validate_params(&params), Err(FundError::EmptyName.into()));
     }
 
     // --- Property-based tests --------------------------------------------
@@ -339,8 +342,8 @@ mod tests {
             prop_assert!(validate_params(&params).is_ok());
         }
 
-        /// A management fee above 100% is always rejected with `FeeTooHigh`,
-        /// regardless of the otherwise-valid parameters.
+        /// A management fee above 100% is always rejected with
+        /// `ManagementFeeTooHigh`, regardless of the otherwise-valid parameters.
         #[test]
         fn validate_rejects_excessive_management_fee(
             name in canonical_name(),
@@ -354,10 +357,14 @@ mod tests {
                 capacity: 0,
                 withdrawal_delay_days: 0,
             };
-            prop_assert_eq!(validate_params(&params), Err(FundError::FeeTooHigh.into()));
+            prop_assert_eq!(
+                validate_params(&params),
+                Err(FundError::ManagementFeeTooHigh.into())
+            );
         }
 
-        /// A performance fee above 100% is always rejected with `FeeTooHigh`.
+        /// A performance fee above 100% is always rejected with
+        /// `PerformanceFeeTooHigh`.
         #[test]
         fn validate_rejects_excessive_performance_fee(
             name in canonical_name(),
@@ -371,7 +378,10 @@ mod tests {
                 capacity: 0,
                 withdrawal_delay_days: 0,
             };
-            prop_assert_eq!(validate_params(&params), Err(FundError::FeeTooHigh.into()));
+            prop_assert_eq!(
+                validate_params(&params),
+                Err(FundError::PerformanceFeeTooHigh.into())
+            );
         }
 
         /// A name carrying a non-zero byte after a zero byte is never canonical

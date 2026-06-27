@@ -92,9 +92,14 @@ fn create_fund_initializes_fund_vault_and_shares_mint() {
 fn create_fund_rejects_duplicate_creation() {
     let (mut svm, manager, quote_mint) = setup();
     let params = sample_params(b"once-only-fund");
+    let (fund_pda, _, _) = fund_pdas(&manager.pubkey(), &params.name);
 
     let first = send_create_fund(&mut svm, &manager, quote_mint, &params);
     assert!(first.is_ok(), "first create_fund failed: {first:?}");
+    let fund_before = svm
+        .get_account(&fund_pda)
+        .expect("fund must exist after the first create")
+        .data;
 
     // Anchor's `init` constraint must reject re-initialization of the same
     // manager + name pair — a re-initializable fund could have its state
@@ -109,6 +114,15 @@ fn create_fund_rejects_duplicate_creation() {
         "expected an on-chain init rejection, got {:?}",
         err.err
     );
+
+    // Rejecting the re-init must leave the original fund byte-identical, not
+    // merely fail: a permissive `is_err` would also pass if the second attempt
+    // silently overwrote state.
+    let fund_after = svm
+        .get_account(&fund_pda)
+        .expect("fund must remain after the duplicate is rejected")
+        .data;
+    assert_eq!(fund_after, fund_before, "duplicate path mutated fund state");
 }
 
 #[test]
@@ -130,8 +144,10 @@ fn create_fund_rejects_a_fee_above_one_hundred_percent() {
 
     let result = send_create_fund(&mut svm, &manager, quote_mint, &params);
     assert!(result.is_err());
-    let (fund_pda, _, _) = fund_pdas(&manager.pubkey(), &params.name);
+    let (fund_pda, vault_pda, shares_pda) = fund_pdas(&manager.pubkey(), &params.name);
     assert!(svm.get_account(&fund_pda).is_none());
+    assert!(svm.get_account(&vault_pda).is_none());
+    assert!(svm.get_account(&shares_pda).is_none());
 }
 
 #[test]
@@ -142,6 +158,14 @@ fn create_fund_rejects_a_non_canonical_name() {
 
     let result = send_create_fund(&mut svm, &manager, quote_mint, &params);
     assert!(result.is_err());
+
+    // Validation runs after Anchor's `init` CPIs, so a rejection must revert
+    // the whole transaction atomically — no fund, vault, or shares account is
+    // left behind.
+    let (fund_pda, vault_pda, shares_pda) = fund_pdas(&manager.pubkey(), &params.name);
+    assert!(svm.get_account(&fund_pda).is_none());
+    assert!(svm.get_account(&vault_pda).is_none());
+    assert!(svm.get_account(&shares_pda).is_none());
 }
 
 #[test]
@@ -152,6 +176,11 @@ fn create_fund_rejects_an_all_zero_name() {
 
     let result = send_create_fund(&mut svm, &manager, quote_mint, &params);
     assert!(result.is_err());
+
+    let (fund_pda, vault_pda, shares_pda) = fund_pdas(&manager.pubkey(), &params.name);
+    assert!(svm.get_account(&fund_pda).is_none());
+    assert!(svm.get_account(&vault_pda).is_none());
+    assert!(svm.get_account(&shares_pda).is_none());
 }
 
 /// Fresh SVM with the compiled program, a funded manager, and an initialized
