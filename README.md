@@ -8,16 +8,16 @@ fees, and a two-phase withdrawal. It lives in its own repository because the
 Solana toolchain pins versions the main monorepo can't use.
 
 > [!NOTE]
-> Early development. The first instructions — `create_fund` and `deposit` —
-> and the design spec at `programs/fund/SPEC.md` are in review; withdraw, NAV
+> Early development. The first instructions — `create_fund` and `deposit` — and
+> the design spec at `programs/fund/SPEC.md` are in review; withdraw, NAV
 > attestation, and fee collection are in progress.
 
 ## Develop
 
 The dev shell (Nix flake + devenv, auto-loaded via direnv) provides the Solana
 toolchain, the offline `cargo-build-sbf` shim, and the GitButler CLI (`but`,
-sourced from the [`but.nix`](https://github.com/dataclique/but.nix) flake
-input — in review).
+sourced from the [`but.nix`](https://github.com/dataclique/but.nix) flake input
+— in review).
 
 ```bash
 direnv allow   # or: nix develop
