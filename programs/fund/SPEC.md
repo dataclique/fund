@@ -133,12 +133,16 @@ sequenceDiagram
 
 - A `Fund` already exists for `(manager, name)` — Anchor's `init` rejects
   re-initialization of the PDA.
-- `management_fee_bps` or `performance_fee_bps` exceeds `10_000` bps — the
-  implementation's `MAX_FEE_BPS` constant (100%), rejected with `FeeTooHigh`; a
-  higher fee would let the manager extract more than the fund's entire value.
-- `name` is all zeros (empty) or not canonically zero-padded (a non-zero byte
-  follows a zero). Both are rejected with the same `NonCanonicalName` error:
-  "name must be non-empty and canonically zero-padded".
+- `management_fee_bps` exceeds `10_000` bps — the implementation's `MAX_FEE_BPS`
+  constant (100%), rejected with `ManagementFeeTooHigh`; a higher fee would let
+  the manager extract more than the fund's entire value. `performance_fee_bps`
+  above the same ceiling is rejected with `PerformanceFeeTooHigh` — the two are
+  distinct variants so a client can tell which fee was out of range.
+- `name` is all zeros (empty) — rejected with `EmptyName` ("name must be
+  non-empty").
+- `name` is not canonically zero-padded (a non-zero byte follows a zero) —
+  rejected with `NonCanonicalName` ("name must be canonically zero-padded"). The
+  two name failures are distinct variants for the same reason as the fees.
 - `quote_mint` is not a valid SPL mint, or any account fails its declared
   constraints (signer, PDA seeds, ownership).
 
