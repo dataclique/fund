@@ -16,7 +16,7 @@
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
 
     but = {
-      url = "github:data-cartel/but.nix";
+      url = "github:dataclique/but.nix";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };
