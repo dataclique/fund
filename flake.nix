@@ -78,6 +78,7 @@
             sha256 = "1cvcdrx5y9ldiprpj4nggb9dnaqjq0zc90fsfvx9k0gy6wqjpqx1";
           };
         };
+
         platformToolsAsset = platformToolsAssets.${system} or null;
         platformTools =
           if platformToolsAsset == null then
@@ -85,10 +86,14 @@
           else
             pkgs.runCommandLocal "solana-platform-tools-v${platformToolsVersion}"
               {
-                src = pkgs.fetchurl {
-                  url = "https://github.com/anza-xyz/platform-tools/releases/download/v${platformToolsVersion}/${platformToolsAsset.name}";
-                  inherit (platformToolsAsset) sha256;
-                };
+                src =
+                  let
+                    baseUrl = "https://github.com/anza-xyz/platform-tools/releases/download";
+                  in
+                  pkgs.fetchurl {
+                    url = "${baseUrl}/v${platformToolsVersion}/${platformToolsAsset.name}";
+                    inherit (platformToolsAsset) sha256;
+                  };
                 nativeBuildInputs = [
                   pkgs.gnutar
                   pkgs.bzip2
