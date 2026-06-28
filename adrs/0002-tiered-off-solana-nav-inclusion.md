@@ -152,10 +152,16 @@ before any inclusion is enabled**. No rail, no Tier-2 inclusion.
    that "lower" is itself a timed redistribution lever against already-committed
    redemptions (pricing mechanics; open decision 10), not a loss-neutral
    direction; (b) >= 2 independent submitters (manager + watchtower), consume
-   the LOWER equity within the freshness window (this is the minimum viable
+   the LOWER equity within the freshness window -- and if fewer than 2
+   quorum-valid submissions are retained when the window closes (e.g. the
+   watchtower is offline and the manager submitted alone), the leg is treated as
+   having no usable read for the epoch and floored per (a), regardless of the
+   lone submission's content, so the `>= 2`-submitter diversity requirement is
+   an on-chain invariant rather than a policy aspiration (at the cost of tying
+   upward recognition to watchtower liveness). This is the minimum viable
    submitter model; ADR 0003, if ratified, supersedes it with an open bonded
-   submitter set and a diversity quorum -- see open decision 2); (c) disclose
-   the upward-recognition liquidity dependency on a gated service; (d) **node
+   submitter set and a diversity quorum -- see open decision 2; (c) disclose the
+   upward-recognition liquidity dependency on a gated service; (d) **node
    sourcing**: confirm how Wormhole guardians source HyperEVM queries
    (self-hosted HyperBFT-validating nodes vs third-party RPC) -- guardians
    cannot verify precompile output against anything consensus-signed, so an
@@ -319,10 +325,11 @@ adversarial test vector asserting the leg prices to `<= 0`, not just that a
 positive value round-trips. Rail 3's aggregate-solvency haircut applies to both
 paths either way.
 
-## Three corrections to the first-pass synthesis (the original doc was right)
+## Three claims this ADR explicitly does not rely on
 
-The adversarial review reversed three load-bearing claims back toward the
-original design. They are recorded here so the decision is not built on them:
+Three load-bearing claims that an earlier framing of this tiering got wrong are
+corrected below and recorded so the decision is not built on them; each states
+the fact directly:
 
 - **Wormhole Queries is gated, not permissionless.** The "manager removed / no
   freeze" claim is false as stated; rail 1 designs around the gate instead.
