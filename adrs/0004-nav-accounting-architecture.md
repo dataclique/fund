@@ -86,11 +86,11 @@ shares live or any trust boundary**:
    _either_ freshly read _or_ explicitly floored. We already floor stale legs
    (Section 6), but framing the epoch NAV as a **reconciliation of all legs'
    journal entries** -- rather than an ad-hoc sum -- makes Principle 8
-   ("unproven => rejected; no pricing on incomplete data") structural. One
-   deliberate divergence from the report: their hub **waits** for completeness;
-   we **never wait** (waiting = freeze, forbidden on the redemption path by
-   Principles 4 and 5), so our gate is **"reconcile-or-floor," never
-   "reconcile-or-block."**
+   ("unproven => rejected", with "no pricing on incomplete data" as this ADR's
+   gloss) structural. One deliberate divergence from the report: their hub
+   **waits** for completeness; we **never wait** (waiting = freeze, forbidden on
+   the redemption path by Principles 4 and 5), so our gate is
+   **"reconcile-or-floor," never "reconcile-or-block."**
 3. **Proof-gated in-transit accounting token.** Adopt the report's
    receipt/liability pattern only in the proof-gated form specified in
    [ADR 0002](0002-tiered-off-solana-nav-inclusion.md)'s "In-transit accounting
