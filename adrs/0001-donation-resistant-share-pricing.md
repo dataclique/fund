@@ -2,7 +2,7 @@
 
 Status: **proposed** (awaiting review)
 
-Drives: [#9](https://github.com/data-cartel/fund/issues/9) (deposit inflation
+Drives: [#9](https://github.com/dataclique/fund/issues/9) (deposit inflation
 attack). Couples with the future net-asset-value (NAV) / off-vault
 assets-under-management (AUM) accounting feature.
 
