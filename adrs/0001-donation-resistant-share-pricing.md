@@ -89,8 +89,13 @@ alone still leaves.
 
 ## Pricing invariants and formulas
 
-This is the executable contract for the fix. The SPEC, the program, and the
-reproduction tests must not drift from it.
+This is the executable contract for the fix: the invariants, formulas, and
+rounding rules below are binding, and the SPEC, the program, and the
+reproduction tests must not drift from them. The single value left open is the
+offset magnitude `(V_ASSETS, V_SHARES)`; the SPEC fixes it within the bounds in
+the Constants section, and pinning it there is a prerequisite for implementation
+— the reproduction-test oracle depends on it — not a forward reference back to
+this ADR.
 
 Invariants:
 
@@ -128,16 +133,22 @@ capacity: SPL mint supply is `u64`, and with `V_ASSETS = 1` a deposit of
 `amount` quote units mints roughly `amount * 10^offset` share units, so the
 offset must satisfy `capacity * 10^offset <= u64::MAX`. With internal accounting
 as the primary defense, the offset only guards the rounding edge, so a small
-offset (0 or 1) suffices. The exact magnitudes are fixed in the SPEC by weighing
-the offset against the quote-token decimals, the fund capacity, and the u64
-share-supply ceiling. Any nonzero offset also breaks the SPEC's `create_fund`
-rule that the shares mint's decimals match the quote mint's (1 quote unit would
-mint `10^offset` share units); that SPEC statement must be revised — or the
+offset (0 or 1) suffices. The SPEC fixes the concrete `(V_ASSETS, V_SHARES)`
+pair within those bounds — weighing the offset against the quote-token decimals,
+the fund capacity, and the u64 share-supply ceiling — and records the chosen
+value; it must not defer back to this ADR, which states the bounds but not the
+magnitude. Any nonzero offset also breaks the SPEC's `create_fund` rule that the
+shares mint's decimals match the quote mint's (1 quote unit would mint
+`10^offset` share units); that SPEC statement must be revised — or the
 shares-mint decimals bumped by `offset` — when the offset is chosen.
 
-Formulas (checked integer arithmetic, no intermediate overflow). Here
-`total_shares` refers to `shares_mint.supply` — the SPL mint is the
-authoritative share counter; `Fund` gains no redundant share-supply field:
+Formulas (the multiply-then-divide uses a **wider `u128` intermediate** for the
+product — `total_shares` / `total_assets` may approach `u64::MAX` as the fund
+fills, so a u64 product would overflow a near-capacity deposit/withdraw; the
+`checked` requirement applies to narrowing the result back to `u64`, not to that
+intermediate product). Here `total_shares` refers to `shares_mint.supply` — the
+SPL mint is the authoritative share counter; `Fund` gains no redundant
+share-supply field:
 
 - Mint:
   `shares_out = floor(deposit_amount * (total_shares + V_SHARES) / (total_assets + V_ASSETS))`
@@ -145,14 +156,14 @@ authoritative share counter; `Fund` gains no redundant share-supply field:
   `assets_out = floor(shares_in     * (total_assets + V_ASSETS) / (total_shares + V_SHARES))`
 
 Both formulas read `total_assets` and `total_shares` as they stand **before**
-this instruction's accounting update — the `aum_before` snapshot of the Options
-section. The zero-output guards below are evaluated against those pre-update
-values, and `total_assets` / `shares_mint.supply` are mutated only after the
-guards pass. These single-base formulas are the **vault-only specialization**:
-while the fund holds only idle vault quote the deposit base equals the
-redemption base (`total_assets`), so one base suffices. Once off-vault NAV
-inclusion lands the two bases diverge — deposits and redemptions price against
-the separate bases named in the Release gate below and formalized in ADR 0002.
+this instruction's accounting update. The zero-output guards below are evaluated
+against those pre-update values, and `total_assets` / `shares_mint.supply` are
+mutated only after the guards pass. These single-base formulas are the
+**vault-only specialization**: while the fund holds only idle vault quote the
+deposit base equals the redemption base (`total_assets`), so one base suffices.
+Once off-vault NAV inclusion lands the two bases diverge — deposits and
+redemptions price against the separate bases named in the Release gate below and
+formalized in ADR 0002.
 
 Zero-output guards (mandatory, checked before any transfer, mint, burn, or
 accounting update):
