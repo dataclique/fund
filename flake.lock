@@ -10,11 +10,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1780757267,
-        "narHash": "sha256-F2F01nY2Po/sMyqOzowhsk71IcGyO8wHqwZG2T1DP2A=",
+        "lastModified": 1782593898,
+        "narHash": "sha256-NeFVIWBCe/MzGRyw6EWa85aE/92EN92Qj/n/BtOvgWQ=",
         "owner": "dataclique",
         "repo": "but.nix",
-        "rev": "9168f0d163f90748d31236004d61c3da0881d8d5",
+        "rev": "7a9fef7251ce2a2f3af67cd4f40a1556ce6405e3",
         "type": "github"
       },
       "original": {
