@@ -10,15 +10,17 @@ this ADR wins on the attestation path.
 ## Context
 
 The system is deliberately centralized for the minimum viable product (MVP):
-Turnkey custody, one execution backend, one manager. The moneymentum SPEC
-currently says "the backend aggregates positions across all venues, computes
-total NAV, and posts signed attestations to the vault program" — that single
-sentence is a Stream-Finance-class trust assumption. If the operator alone tells
-the vault what the off-Solana capital is worth, share pricing is
-manager-attested and the rest of the security design decorates a trusted core.
-NAV attestation is the one subsystem that must be permissionless in the MVP:
-anyone can submit, anyone can dispute, anyone can verify, and the operator holds
-no special write authority over the redeemable price.
+Turnkey custody, one execution backend, one manager. The moneymentum system's
+NAV design — the off-chain backend's spec, distinct from this repo's
+`programs/fund/SPEC.md` (which covers only the on-chain program) — currently
+says "the backend aggregates positions across all venues, computes total NAV,
+and posts signed attestations to the vault program"; that single sentence is a
+Stream-Finance-class trust assumption. If the operator alone tells the vault
+what the off-Solana capital is worth, share pricing is manager-attested and the
+rest of the security design decorates a trusted core. NAV attestation is the one
+subsystem that must be permissionless in the MVP: anyone can submit, anyone can
+dispute, anyone can verify, and the operator holds no special write authority
+over the redeemable price.
 
 ### What the research established (2026-06-10)
 
@@ -134,11 +136,14 @@ floor), not a "pick one" resolution.
 
 During window `W` after finalization, any bonded party may dispute by submitting
 a contradicting observation of an **equal or higher evidence class**. Resolution
-ladder: A > B > C > D; an A-vs-A contradiction (two guardian-signed responses
-disagreeing beyond tolerance for the same bound block) is by construction a
-data-integrity halt, never auto-resolved. The losing side's bond is slashed to
-the disputer. Withholding — the one attack no bond can punish — fails closed: no
-fresh finalized epoch means ADR 0002 stale-read rules apply automatically.
+ladder: A > B > C > D. A **strictly higher-class** contradiction wins and
+slashes the losing (lower-class) side's bond to the disputer. An **equal-class**
+contradiction beyond tolerance — not only A-vs-A, but any two same-class
+observations that disagree — resolves to **no winner**: it is by construction a
+data-integrity halt (the ADR 0002 halt machinery), never auto-resolved, and no
+bond is slashed, since same-class evidence cannot prove either side wrong.
+Withholding — the one attack no bond can punish — fails closed: no fresh
+finalized epoch means ADR 0002 stale-read rules apply automatically.
 
 Slashing pays from attestation bonds only. It does not touch fund capital, and
 the cumulative-outflow latch (ADR 0002 rail 6) remains the backstop against any
@@ -196,9 +201,9 @@ upgrades, not MVP blockers:
   (guardian-set check first; Switchboard Cross-Program Invocation (CPI); zkTLS
   verifier CPI later), quorum/finalization state, dispute/slash flow. The vault
   reads only finalized epochs from it.
-- The moneymentum SPEC's "NAV oracle" paragraph must be rewritten: the backend's
-  NAV computation becomes an internal estimate and one channel submission, not
-  the attestation.
+- The moneymentum system's "NAV oracle" design (the off-chain backend's spec,
+  not `programs/fund/SPEC.md`) must be rewritten: the backend's NAV computation
+  becomes an internal estimate and one channel submission, not the attestation.
 - Per-epoch cost: bonds are rent-class deposits; channel-A verification CU-heavy
   until the aggregation circuit lands; cranks are permissionless (any submitter
   finalizes once quorum exists).
