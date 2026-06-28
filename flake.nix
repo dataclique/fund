@@ -182,17 +182,16 @@
         # that fails. A nix-provided cargo rejects `+<toolchain>` and there
         # is no rustup, so the build dies with ENOENT. These shims strip the
         # `+<toolchain>` argument and satisfy the rustup probe.
+        # The strip-the-+toolchain logic lives in
+        # scripts/cargo-rustup-arg-shim.nu (tested in the sbfScripts checkPhase)
+        # per the repo's non-trivial-shell rule; this wrapper only points cargo
+        # at the real binary and execs the script.
         cargoRustupArgShim = pkgs.writeShellApplication {
           name = "cargo";
+          runtimeInputs = [ pkgs.nushell ];
           text = ''
-            # A leading '+<toolchain>' is a rustup selector (e.g. +1.95.0) the
-            # nix cargo rejects, so drop it before exec'ing the real cargo. The
-            # `case` is nounset-safe under `set -u`, including the zero-arg case
-            # (no selector to strip), unlike a bare ''${1#+} pattern expansion.
-            case "''${1:-}" in
-              +*) shift ;;
-            esac
-            exec ${rustToolchain}/bin/cargo "$@"
+            export CARGO_REAL_BIN="${rustToolchain}/bin/cargo"
+            exec nu ${sbfScripts}/libexec/cargo-rustup-arg-shim.nu "$@"
           '';
         };
 
