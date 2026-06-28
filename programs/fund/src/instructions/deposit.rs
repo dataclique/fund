@@ -118,7 +118,8 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
 ///
 /// This whole function — including the `supply == 0` special case — is
 /// superseded by the ADR 0001 virtual-offset formula over `total_assets`
-/// once that migration lands (see adrs/0001 and the SPEC deposit section).
+/// once that migration lands (see adrs/0001-donation-resistant-share-pricing.md
+/// and the SPEC deposit section).
 fn shares_for_deposit(amount: u64, supply: u64, aum_before: u64) -> Result<u64> {
     let shares = if supply == 0 {
         amount
