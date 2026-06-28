@@ -35,18 +35,18 @@ re-verified before implementation freezes a dependency on them.
   nothing for a zero-knowledge (ZK) proof of account equity to anchor to. No
   design can eliminate observation trust for Hyperliquid today; it can only
   diversify and bond it.
-- **V — Wormhole Queries is "permissioned but trustless."** The CCQ server
-  brokers requests behind an application-programming-interface (API) key, but
-  responses are signed by the Guardian set and verifiable by anyone, on Solana
-  included. (The exact response signature-quorum threshold — whether it matches
-  the Verified Action Approval (VAA) 13-of-19 rule — is
-  **unverified-pending-fixture** per ADR 0002 and must be pinned by a recorded
-  `QueryResponse` fixture before the verifier relies on it.) The
-  supported-networks table lists HyperEVM (Hyperliquid's Ethereum Virtual
-  Machine layer; chain 47) with `eth_call` and `eth_call_by_timestamp` (no
-  finality variant). The gate is therefore on _requesting_, not on _verifying_:
-  a key holder can withhold but cannot forge. Integrity decentralized; liveness
-  permissioned.
+- **V — Wormhole Queries is "permissioned but trustless."** The Cross-Chain
+  Queries (CCQ) server brokers requests behind an
+  application-programming-interface (API) key, but responses are signed by the
+  Guardian set and verifiable by anyone, on Solana included. (The exact response
+  signature-quorum threshold — whether it matches the Verified Action Approval
+  (VAA) 13-of-19 rule — is **unverified-pending-fixture** per ADR 0002 and must
+  be pinned by a recorded `QueryResponse` fixture before the verifier relies on
+  it.) The supported-networks table lists HyperEVM (Hyperliquid's Ethereum
+  Virtual Machine layer; chain 47) with `eth_call` and `eth_call_by_timestamp`
+  (no finality variant). The gate is therefore on _requesting_, not on
+  _verifying_: a key holder can withhold but cannot forge. Integrity
+  decentralized; liveness permissioned.
 - **V — Wormhole's HyperEVM launch integration is asset transfers only**
   (Portal/Connect); the launch material documents no Queries / Native Token
   Transfers (NTT) / messaging for HyperEVM. The Queries support above comes from
@@ -162,9 +162,10 @@ value extraction a wrong-but-finalized epoch enabled.
   "impossible" to "channel-A-equivalent with Ethereum L1 as the anchor" —
   strictly better evidence than the Hyperliquid leg, because it anchors to a
   real consensus commitment.
-- **CEXes** — permanently Tier 3 under this ADR; zkTLS of CEX APIs is at best a
-  single-source class-C leg, and the quorum requires class A mandatory plus K>=2
-  distinct channels, so no CEX leg can ever reach quorum finalization.
+- **CEXes** — permanently Tier 3 under this ADR; zkTLS of centralized exchange
+  (CEX) APIs is at best a single-source class-C leg, and the quorum requires
+  class A mandatory plus K>=2 distinct channels, so no CEX leg can ever reach
+  quorum finalization.
 
 ### The custom-cryptography track (flagged for external review)
 
