@@ -3,7 +3,9 @@
 Status: **proposed** (awaiting review)
 
 Drives: a review of the LayerZero x Centrifuge report "Unlocking Tokenized Fund
-Composability" (its "NAV and pricing across chains" section and the
+Composability"
+([assets.layerzero.network](https://assets.layerzero.network/pdf/unlocking-tokenized-fund-composability.pdf),
+accessed 2026-06-27) (its "NAV and pricing across chains" section and the
 combined-solution sections) against this fund's cross-chain NAV oracle design
 (ADRs [0001](0001-donation-resistant-share-pricing.md),
 [0002](0002-tiered-off-solana-nav-inclusion.md),
