@@ -185,12 +185,13 @@
         cargoRustupArgShim = pkgs.writeShellApplication {
           name = "cargo";
           text = ''
-            # ''${1#+} strips a leading '+'; if that changes $1, then $1 is a
-            # rustup +<toolchain> selector (e.g. +1.95.0) the nix cargo rejects,
-            # so drop it before exec'ing the real cargo.
-            if [ "''${1:-}" != "''${1#+}" ]; then
-              shift
-            fi
+            # A leading '+<toolchain>' is a rustup selector (e.g. +1.95.0) the
+            # nix cargo rejects, so drop it before exec'ing the real cargo. The
+            # `case` is nounset-safe under `set -u`, including the zero-arg case
+            # (no selector to strip), unlike a bare ''${1#+} pattern expansion.
+            case "''${1:-}" in
+              +*) shift ;;
+            esac
             exec ${rustToolchain}/bin/cargo "$@"
           '';
         };
