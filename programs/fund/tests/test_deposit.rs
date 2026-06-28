@@ -21,10 +21,10 @@ const QUOTE_DECIMALS: u8 = 6;
 const INVESTOR_QUOTE_BALANCE: u64 = 1_000_000_000;
 
 // Anchor custom error codes: 6000 + variant index in FundError.
-const ZERO_DEPOSIT: u32 = 6002;
-const CAPACITY_EXCEEDED: u32 = 6003;
-const ZERO_SHARES: u32 = 6004;
-const EMPTY_VAULT_WITH_SHARES: u32 = 6006;
+const ZERO_DEPOSIT: u32 = 6004;
+const CAPACITY_EXCEEDED: u32 = 6005;
+const ZERO_SHARES: u32 = 6006;
+const EMPTY_VAULT_WITH_SHARES: u32 = 6008;
 // Anchor framework error (anchor-lang 0.31 error.rs):
 // AccountNotAssociatedTokenAccount, raised by the associated_token
 // constraints when the passed account is not the canonical ATA.
