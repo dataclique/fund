@@ -421,6 +421,64 @@ the fact directly:
   is ratified the lever is disclosed, not yet mitigated (Section 6's timeout
   payout and the residual-trust table reflect the same open status).
 
+## In-transit accounting token (candidate refinement; see ADR 0004)
+
+The LayerZero x Centrifuge report "Unlocking Tokenized Fund Composability"
+([assets.layerzero.network](https://assets.layerzero.network/pdf/unlocking-tokenized-fund-composability.pdf),
+accessed 2026-06-27) proposes "accounting tokens" for capital mid-transfer
+between chains -- a receipt token on the source and a liability token on the
+destination so the value does not "disappear from NAV." That pattern is
+admissible here, but **only** as a proof-gated refinement of the
+[security-design.md](../docs/security-design.md) Section 8 in-transit rule --
+never as the report states it (an unbacked receipt/liability pair the issuer
+mints on faith, which is exactly the bridge/manager trust Section 8 refuses).
+
+Problem it addresses: Section 8 excludes bridged principal from `verifiable_nav`
+and from the Tier-3 claim while it is in transit between Solana and the venue.
+That exclusion is the safe direction, but it makes the fund's NAV dip while
+principal is mid-bridge and jump when it lands -- a temporary mispricing window
+(a depositor entering in the dip buys cheap shares; a redeemer settling in the
+dip is short-changed), the report's "NAV drops temporarily then jumps."
+
+Refinement: represent in-transit principal as a receipt entry that contributes
+to NAV **only** against the same consume-once repatriation proof tuple rail 6
+already requires --
+`(source chain, pinned venue/bridge account id, tx id, amount, nonce)` -- so the
+credit is evidence-backed, not manager-assertable, and a forged, replayed, or
+double-counted proof cannot mint phantom in-transit value. The in-transit credit
+is a distinct accounting entry from rail 6's redemption-outflow latch, so it
+needs its own coverage: the failing-tests contract for this refinement MUST
+include a vector asserting that a forged, replayed, or double-counted proof
+cannot create a phantom in-transit credit or prematurely consume a legitimate
+one. Invariants it must hold:
+
+- **Fail-safe to exclusion.** With no fresh proof the in-transit entry is `0` --
+  the current Section 8 behavior -- never a stale credit.
+- **Adverse-to-actor.** Smoothing redistributes value between depositors and
+  redeemers inside the transit window, so in-transit value enters the two sides
+  under the same `max`/`min`-over-conversion discipline as every other leg
+  (Pricing mechanics): redeemers price against the low side, depositors the high
+  side, never one symbol into both.
+- **Latch-orthogonal.** The source-side receipt credit and the venue-side debit
+  net to zero against a **dedicated in-transit ledger** -- the outbound proof
+  opens the entry, the repatriation proof closes it -- and MUST NOT touch rail
+  6's cumulative-redemption-outflow integral at all. The two channels are
+  orthogonal: rail 6 tracks USDC paid out to redeemers, while in-transit
+  principal is the fund's own balance moving between chains; netting the latter
+  into the latch would let routine rebalancing consume the lie-budget the latch
+  reserves for detecting false reads, and could trip the latch on honest
+  principal movement.
+- **Capped.** In-transit principal counts against the destination venue's
+  total-loss-tolerable cap (it is the fund's own principal headed to that
+  venue), never as extra headroom.
+
+Status: candidate refinement, not ratified. It is strictly optional on top of
+the Section 8 exclusion, which stays the safe default. If adopted it ships as a
+failing-tests contract like every rail, with a vector asserting that an unproven
+in-transit amount contributes `0`. Its architectural context -- and the broader
+question of whether to adopt the report's hub-and-spoke pattern wholesale -- is
+[ADR 0004](0004-nav-accounting-architecture.md).
+
 ## Consequences
 
 - Investor shares redeem against `verifiable_nav` (trust-minimized) plus a
