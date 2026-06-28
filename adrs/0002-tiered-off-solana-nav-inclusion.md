@@ -444,9 +444,12 @@ to NAV **only** against the same consume-once repatriation proof tuple rail 6
 already requires --
 `(source chain, pinned venue/bridge account id, tx id, amount, nonce)` -- so the
 credit is evidence-backed, not manager-assertable, and a forged, replayed, or
-double-counted proof cannot mint phantom in-transit value (rail 6's failing-test
-vector already covers that case and extends to this credit). Invariants it must
-hold:
+double-counted proof cannot mint phantom in-transit value. The in-transit credit
+is a distinct accounting entry from rail 6's redemption-outflow latch, so it
+needs its own coverage: the failing-tests contract for this refinement MUST
+include a vector asserting that a forged, replayed, or double-counted proof
+cannot create a phantom in-transit credit or prematurely consume a legitimate
+one. Invariants it must hold:
 
 - **Fail-safe to exclusion.** With no fresh proof the in-transit entry is `0` --
   the current Section 8 behavior -- never a stale credit.
@@ -455,10 +458,15 @@ hold:
   under the same `max`/`min`-over-conversion discipline as every other leg
   (Pricing mechanics): redeemers price against the low side, depositors the high
   side, never one symbol into both.
-- **Latch-direction-correct.** The source-side receipt credit and the venue-side
-  debit must net to zero against rail 6's cumulative-outflow integral; the token
-  smooths _pricing_ across the bridge window and must not become a second
-  channel that relaxes the latch.
+- **Latch-orthogonal.** The source-side receipt credit and the venue-side debit
+  net to zero against a **dedicated in-transit ledger** -- the outbound proof
+  opens the entry, the repatriation proof closes it -- and MUST NOT touch rail
+  6's cumulative-redemption-outflow integral at all. The two channels are
+  orthogonal: rail 6 tracks USDC paid out to redeemers, while in-transit
+  principal is the fund's own balance moving between chains; netting the latter
+  into the latch would let routine rebalancing consume the lie-budget the latch
+  reserves for detecting false reads, and could trip the latch on honest
+  principal movement.
 - **Capped.** In-transit principal counts against the destination venue's
   total-loss-tolerable cap (it is the fund's own principal headed to that
   venue), never as extra headroom.
