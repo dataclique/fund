@@ -66,6 +66,14 @@ the inbound accounting discipline, decline outbound share distribution absent a
 product trigger, and (optionally) reframe the whole tier model as one
 double-entry ledger.
 
+Mapped to the five components enumerated in the Context: component (3) (async
+settlement) is already present in the stronger form noted there, so it is not
+re-decided here; Direction 1 adopts components (4) (double-entry bookkeeping
+with complete-state reconciliation) and (5) (accounting tokens for in-flight
+value); and Direction 2 is the verdict on components (1) and (2) (hub-and-spoke
+authoritative state and the generalized cross-chain messaging that would carry
+NAV outward to spoke chains).
+
 ### Direction 1 -- Inbound accounting discipline (ADOPT)
 
 Three of the report's ideas improve NAV correctness **without changing where
@@ -96,8 +104,9 @@ shares live or any trust boundary**:
    [ADR 0002](0002-tiered-off-solana-nav-inclusion.md)'s "In-transit accounting
    token" refinement: it smooths the repatriation NAV dip, but credits
    in-transit value only against rail 6's consume-once repatriation proof tuple,
-   fails safe to the current Section 8 exclusion, and nets to zero against the
-   cumulative-outflow latch.
+   fails safe to the current Section 8 exclusion, and nets to zero on a
+   dedicated in-transit ledger kept orthogonal to rail 6's redemption-outflow
+   latch.
 
 **Unifying frame (optional presentation change).** The whole tier model can be
 expressed as one double-entry ledger:
