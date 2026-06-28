@@ -424,10 +424,11 @@ the fact directly:
 ## In-transit accounting token (candidate refinement; see ADR 0004)
 
 The LayerZero x Centrifuge report "Unlocking Tokenized Fund Composability"
-proposes "accounting tokens" for capital mid-transfer between chains -- a
-receipt token on the source and a liability token on the destination so the
-value does not "disappear from NAV." That pattern is admissible here, but
-**only** as a proof-gated refinement of the
+([assets.layerzero.network](https://assets.layerzero.network/pdf/unlocking-tokenized-fund-composability.pdf),
+accessed 2026-06-27) proposes "accounting tokens" for capital mid-transfer
+between chains -- a receipt token on the source and a liability token on the
+destination so the value does not "disappear from NAV." That pattern is
+admissible here, but **only** as a proof-gated refinement of the
 [security-design.md](../docs/security-design.md) Section 8 in-transit rule --
 never as the report states it (an unbacked receipt/liability pair the issuer
 mints on faith, which is exactly the bridge/manager trust Section 8 refuses).
