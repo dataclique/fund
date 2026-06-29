@@ -31,4 +31,12 @@ pub struct Fund {
     pub fund_bump: u8,
     pub vault_bump: u8,
     pub shares_mint_bump: u8,
+    /// Running internal accounting of the fund's quote-denominated assets under
+    /// management: the quote the program recognizes as fund-owned. Initialized
+    /// to 0 at creation, raised by `deposit` (`+= amount`) and lowered by
+    /// withdrawal. This -- never the manipulable `vault.amount` -- is the
+    /// donation-resistant basis for share pricing: a direct transfer into the
+    /// vault raises `vault.amount` but not `total_assets`, so it cannot move the
+    /// price (ADR 0001; see the SPEC deposit Share math).
+    pub total_assets: u64,
 }

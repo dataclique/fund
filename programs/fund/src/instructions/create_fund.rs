@@ -119,6 +119,9 @@ fn build_fund(
         fund_bump: bumps.fund,
         vault_bump: bumps.vault,
         shares_mint_bump: bumps.shares_mint,
+        // A fresh fund accounts no quote until its first deposit; pricing and
+        // capacity both read this, never the vault balance (ADR 0001).
+        total_assets: 0,
     }
 }
 
@@ -170,6 +173,7 @@ mod tests {
         assert_eq!(fund.fund_bump, 200);
         assert_eq!(fund.vault_bump, 100);
         assert_eq!(fund.shares_mint_bump, 50);
+        assert_eq!(fund.total_assets, 0);
     }
 
     #[test]
@@ -320,6 +324,7 @@ mod tests {
             prop_assert_eq!(fund.fund_bump, fund_bump);
             prop_assert_eq!(fund.vault_bump, vault_bump);
             prop_assert_eq!(fund.shares_mint_bump, shares_mint_bump);
+            prop_assert_eq!(fund.total_assets, 0);
         }
 
         /// Any in-range fees combined with a canonical, non-empty name are
