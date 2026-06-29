@@ -184,6 +184,62 @@ fn deposit_at_exactly_capacity_succeeds() {
     assert_eq!(shares_mint_state.supply, 100_000_000); // first deposit is 1:1
 }
 
+#[test]
+fn donation_does_not_dilute_a_later_depositor_inflation_attack_reproduction() {
+    // Reproduction of the classic ERC-4626 first-depositor inflation attack
+    // (issue #9, adrs/0001-donation-resistant-share-pricing.md). A distinct
+    // attacker front-runs with a 1-unit first deposit, then donates a large
+    // amount straight into the vault PDA -- raising vault.amount, minting no
+    // shares. A later victim then deposits an amount smaller than the donation.
+    //
+    // Under donation-resistant total_assets pricing the donation never enters the
+    // price basis, so the victim still mints fair, near-1:1 shares. Under the
+    // manipulable vault.amount pricing the victim's deposit rounds down to zero
+    // shares and is rejected (ZeroShares) -- the attack bricks the victim's
+    // deposit and lets the attacker's lone share capture the inflated vault. This
+    // test asserts the donation-resistant outcome, so it is RED against
+    // vault.amount pricing and GREEN once the share price reads total_assets.
+    let mut ctx = setup(1_000_000_000_000);
+
+    let attacker = Keypair::new();
+    let attack = deposit_as(&mut ctx, &attacker, 10_000, 1);
+    assert!(
+        attack.is_ok(),
+        "attacker's first deposit failed: {attack:?}"
+    );
+
+    // Donate straight into the vault: vault.amount jumps by `donation`, supply is
+    // unchanged, and total_assets (the donation-resistant basis) must stay put.
+    let donation = 100_000_000;
+    let vault_balance = unpack_token(&ctx.svm, &ctx.vault).amount;
+    set_token_account(
+        &mut ctx.svm,
+        ctx.vault,
+        ctx.quote_mint,
+        ctx.fund_pda,
+        vault_balance + donation,
+    );
+
+    // Victim deposits less than the donation -- exactly the case vault.amount
+    // pricing rounds to zero shares.
+    ctx.svm.expire_blockhash();
+    let victim_amount = 100_000_000;
+    let victim = send_deposit(&mut ctx, victim_amount);
+    assert!(
+        victim.is_ok(),
+        "victim deposit was rejected -- the donation bricked it, attack succeeded: {victim:?}"
+    );
+
+    // The victim must hold a fair, near-1:1 claim for their deposit, not a dust
+    // amount diluted by the attacker's single share.
+    let victim_shares_ata = get_associated_token_address(&ctx.investor.pubkey(), &ctx.shares_mint);
+    let victim_shares = unpack_token(&ctx.svm, &victim_shares_ata).amount;
+    assert!(
+        victim_shares >= victim_amount - 1,
+        "victim got {victim_shares} shares for {victim_amount} quote -- diluted by the donation"
+    );
+}
+
 struct TestContext {
     svm: LiteSVM,
     investor: Keypair,
@@ -295,6 +351,45 @@ fn send_deposit_with_shares_account(
     );
     let TestContext { svm, investor, .. } = ctx;
     send(svm, &[instruction], investor)
+}
+
+/// Funds a fresh `investor`'s quote ATA with `quote_balance`, then runs a deposit
+/// of `amount` signed by that investor into their own shares ATA. The
+/// single-investor `send_deposit` cannot model a multi-party attack; this lets a
+/// test drive a distinct attacker and victim against one fund.
+fn deposit_as(
+    ctx: &mut TestContext,
+    investor: &Keypair,
+    quote_balance: u64,
+    amount: u64,
+) -> Result<litesvm::types::TransactionMetadata, Box<litesvm::types::FailedTransactionMetadata>> {
+    ctx.svm.airdrop(&investor.pubkey(), 10_000_000_000).unwrap();
+    let quote_ata = get_associated_token_address(&investor.pubkey(), &ctx.quote_mint);
+    set_token_account(
+        &mut ctx.svm,
+        quote_ata,
+        ctx.quote_mint,
+        investor.pubkey(),
+        quote_balance,
+    );
+    let shares_ata = get_associated_token_address(&investor.pubkey(), &ctx.shares_mint);
+    let instruction = Instruction::new_with_bytes(
+        fund::id(),
+        &fund::instruction::Deposit { amount }.data(),
+        fund::accounts::Deposit {
+            investor: investor.pubkey(),
+            fund: ctx.fund_pda,
+            vault: ctx.vault,
+            shares_mint: ctx.shares_mint,
+            investor_quote_ata: quote_ata,
+            investor_shares_ata: shares_ata,
+            token_program: spl_token::id(),
+            associated_token_program: anchor_spl::associated_token::ID,
+            system_program: solana_sdk::system_program::id(),
+        }
+        .to_account_metas(None),
+    );
+    send(&mut ctx.svm, &[instruction], investor)
 }
 
 fn send(
