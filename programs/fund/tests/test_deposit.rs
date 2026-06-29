@@ -162,6 +162,28 @@ fn deposit_rejects_amount_exceeding_capacity() {
     assert_eq!(unpack_token(&ctx.svm, &ctx.vault).amount, 0);
 }
 
+#[test]
+fn deposit_at_exactly_capacity_succeeds() {
+    // The capacity check is `projected_aum <= capacity`, so a deposit that lands
+    // AUM *exactly* on the ceiling must be accepted — capacity is the inclusive
+    // limit the fund promises LPs, not an exclusive one. This pins the allowed
+    // side of the fence-post: a future tightening of `<=` to `<` would silently
+    // break the promise, and only this green boundary test would catch it (the
+    // rejection test above fires one unit over and would stay green).
+    let mut ctx = setup(100_000_000);
+
+    let result = send_deposit(&mut ctx, 100_000_000);
+    assert!(
+        result.is_ok(),
+        "deposit at exactly capacity failed: {result:?}"
+    );
+
+    let vault_state = unpack_token(&ctx.svm, &ctx.vault);
+    assert_eq!(vault_state.amount, 100_000_000);
+    let shares_mint_state = unpack_mint(&ctx.svm, &ctx.shares_mint);
+    assert_eq!(shares_mint_state.supply, 100_000_000); // first deposit is 1:1
+}
+
 struct TestContext {
     svm: LiteSVM,
     investor: Keypair,
