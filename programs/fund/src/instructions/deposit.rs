@@ -1,25 +1,26 @@
 //! Deposit: an investor swaps quote tokens for freshly-minted fund shares.
 //!
-//! The steps are deliberately ordered -- price, move quote in, then mint shares
-//! out -- so the share price is struck against the fund's state *before* the
-//! inbound transfer changes it. The depositor's own `amount` must not be counted
-//! in the basis it is buying into: pricing after the transfer would put `amount`
-//! in the denominator of the share formula and mint them too *few* shares,
-//! diluting the incoming depositor in favor of existing holders.
+//! The steps are deliberately ordered -- read the pre-deposit accounting, move
+//! quote in, mint shares, then raise `total_assets` -- so the price is struck
+//! against `total_assets` and `supply` as they stand *before* this deposit. The
+//! depositor's own `amount` must not be counted in the basis it is buying into:
+//! pricing against the post-update `total_assets` would put `amount` in the
+//! denominator of the share formula and mint them too *few* shares, diluting the
+//! incoming depositor in favor of existing holders.
 //!
-//! ## Pricing basis (v0, and why it is not yet ADR 0001)
+//! ## Pricing basis (donation-resistant internal accounting, ADR 0001)
 //!
-//! Shares are priced off `vault.amount` -- the raw SPL balance of the vault. That
-//! is the donation-manipulable basis ADR 0001 (donation-resistant share pricing)
-//! exists to replace with an internally-tracked `Fund.total_assets`. We ship the
-//! vault-balance basis for v0 anyway because `total_assets` requires a `Fund`
-//! layout change plus a state update on every value-moving instruction (the
-//! ADR's Option B) -- that is its own feature, sequenced separately. The residual
-//! is the ERC-4626 first-depositor inflation attack, **accepted for v0 and
-//! recorded in SPEC.md**, not a property this code claims to defend. Do not
-//! describe this instruction as donation-resistant until the ADR 0001 migration
-//! lands. See `adrs/0001-donation-resistant-share-pricing.md` and the SPEC
-//! deposit section.
+//! Shares are priced off `fund.total_assets` -- the quote the program accounts as
+//! fund-owned -- and `shares_mint.supply`, and **never** off `vault.amount`. A
+//! direct token transfer into the vault raises `vault.amount` but not
+//! `total_assets`, so it cannot move the share price: that is what closes the
+//! classic ERC-4626 first-depositor inflation attack. The price applies a virtual
+//! offset `(V_ASSETS, V_SHARES) = (1, 1)` (offset 0): internal accounting is the
+//! *complete* donation defense, so the offset's only job is to keep the
+//! first-deposit denominator non-zero, and keeping `V_SHARES = 1` preserves 1:1
+//! first-deposit pricing and the shares-decimals == quote-decimals invariant. See
+//! `adrs/0001-donation-resistant-share-pricing.md` and the SPEC deposit Share
+//! math.
 //!
 //! ## Security
 //!
@@ -47,11 +48,14 @@ pub struct Deposit<'info> {
     #[account(mut)]
     pub investor: Signer<'info>,
 
-    /// The fund being deposited into. Re-derived from its *stored* canonical bump
-    /// (never a caller-supplied bump) so a non-canonical look-alike PDA cannot be
-    /// substituted; `Account<Fund>` additionally enforces program ownership and
-    /// the 8-byte discriminator (bump-canonicalization + owner + type defenses).
+    /// The fund being deposited into. `mut` because the deposit raises
+    /// `total_assets` by `amount` after the share math. Re-derived from its
+    /// *stored* canonical bump (never a caller-supplied bump) so a non-canonical
+    /// look-alike PDA cannot be substituted; `Account<Fund>` additionally enforces
+    /// program ownership and the 8-byte discriminator (bump-canonicalization +
+    /// owner + type defenses).
     #[account(
+        mut,
         seeds = [b"fund", fund.manager.as_ref(), &fund.name],
         bump = fund.fund_bump,
     )]
@@ -126,36 +130,32 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     // free of a degenerate case.
     require!(amount > 0, FundError::ZeroDeposit);
 
-    // Price against the vault balance *before* the inbound transfer, so the
-    // depositor's own `amount` is not counted in the basis it is buying into.
-    // Reading it after would put `amount` in the denominator of the share
-    // formula and mint too few shares, diluting the incoming depositor. (v0
-    // basis: this is the donation-manipulable `vault.amount` -- see the module
-    // docs; ADR 0001 replaces it with `Fund.total_assets`.)
-    let aum_before = ctx.accounts.vault.amount;
+    // Price against internal accounting, never `vault.amount`: a direct donation
+    // raises the vault balance but not `total_assets`, so it cannot move the price
+    // or the capacity check (ADR 0001 donation resistance). This is the
+    // pre-deposit value; `total_assets` is raised only after the math and the mint
+    // succeed (below).
+    let total_assets = ctx.accounts.fund.total_assets;
 
-    // Enforce capacity against *projected* post-deposit AUM, not current AUM, so
-    // this deposit cannot push the fund over its capacity ceiling. We add the
-    // requested `amount`: the classic SPL Token program has no transfer fee, so
-    // the vault receives exactly `amount` and projected AUM equals actual. (A
-    // Token-2022 mint with a transfer-fee extension would land *less* than
-    // `amount` in the vault, breaking that equality -- but `token_program` is
-    // pinned to classic Token above, so that case cannot arise here. Revisit this
-    // if Token-2022 support is ever added.)
-    let projected_aum = aum_before
+    // Enforce capacity against *projected* accounted AUM (`total_assets + amount`)
+    // so this deposit cannot push the fund past its ceiling. Adding `amount` is
+    // exact because the classic SPL Token program has no transfer fee, so the
+    // vault receives exactly `amount` and the `total_assets += amount` update
+    // below stays truthful. (A Token-2022 transfer-fee mint would land *less* than
+    // `amount`; `token_program` is pinned to classic Token, so that cannot arise
+    // here -- revisit if Token-2022 support is added.)
+    let projected_assets = total_assets
         .checked_add(amount)
         .ok_or(FundError::MathOverflow)?;
     require!(
-        projected_aum <= ctx.accounts.fund.capacity,
+        projected_assets <= ctx.accounts.fund.capacity,
         FundError::CapacityExceeded
     );
 
-    // Args in order: quote deposited, shares outstanding, quote AUM before. All
-    // three are bare `u64`, so the compiler cannot catch a transposed call -- keep
-    // this site and the signature in lockstep. (Domain newtypes that would make a
-    // swap a type error are tracked for the ADR 0001 pricing rewrite, which
-    // changes this signature anyway.)
-    let shares_out = shares_for_deposit(amount, ctx.accounts.shares_mint.supply, aum_before)?;
+    // Args in order: quote deposited, shares outstanding, accounted assets before.
+    // All three are bare `u64`, so the compiler cannot catch a transposed call --
+    // keep this site and the signature in lockstep.
+    let shares_out = shares_for_deposit(amount, ctx.accounts.shares_mint.supply, total_assets)?;
 
     // Move the quote in before minting. If the mint below fails, the whole
     // transaction reverts and this transfer reverts with it (Solana transactions
@@ -206,45 +206,55 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         shares_out,
     )?;
 
+    // Raise internal accounting last -- after the quote has moved and the shares
+    // are minted. This is the *only* thing that moves `total_assets`; a vault
+    // donation cannot, which is precisely what makes the price donation-resistant.
+    ctx.accounts.fund.total_assets = projected_assets;
+
     Ok(())
 }
 
-/// Shares minted for a deposit of `amount` quote tokens into a vault that holds
-/// `aum_before` quote and has `supply` shares outstanding.
+/// Virtual asset/share offsets for donation-resistant pricing (ADR 0001).
+/// Internal `total_assets` accounting is the *complete* donation defense, so the
+/// offset's only remaining job is to keep the first-deposit denominator non-zero.
+/// `(V_ASSETS, V_SHARES) = (1, 1)` (offset 0) does that while keeping the first
+/// deposit at 1:1 and the shares-mint decimals equal to the quote mint's; a
+/// larger `V_SHARES` would force a decimals bump for no benefit. `u128` because
+/// they are only ever used inside the widened share-math product.
+const V_ASSETS: u128 = 1;
+const V_SHARES: u128 = 1;
+
+/// Shares minted for a deposit of `amount` quote tokens into a fund that accounts
+/// `total_assets` quote internally (the donation-resistant basis -- *not*
+/// `vault.amount`) and has `supply` shares outstanding.
 ///
-/// The first deposit (`supply == 0`) anchors share price at 1:1 -- any quote
-/// donated into the vault beforehand simply accrues to the first depositor,
-/// who dilutes no one. Outstanding shares against an empty vault is an
-/// invariant break (it would let a depositor buy in at a fake 1:1 price and
-/// dilute every holder), so it is rejected rather than priced. Otherwise
-/// shares are pro-rata to the pre-deposit AUM, rounded down -- and a zero
-/// result is rejected so a dust deposit can't take tokens for no shares.
-///
-/// This whole function -- including the `supply == 0` special case -- is
-/// superseded by the ADR 0001 virtual-offset formula over `total_assets`
-/// once that migration lands (see adrs/0001-donation-resistant-share-pricing.md
-/// and the SPEC deposit section).
-fn shares_for_deposit(amount: u64, supply: u64, aum_before: u64) -> Result<u64> {
-    let shares = if supply == 0 {
-        // First deposit anchors price at 1:1 regardless of any quote already in
-        // the vault: with no holders there is no one to dilute, so a prior
-        // donation just accrues to this depositor. Rejecting it instead would let
-        // a 1-lamport donation brick the fund before anyone could deposit.
-        amount
-    } else if aum_before == 0 {
-        return Err(FundError::EmptyVaultWithShares.into());
-    } else {
-        // Widen to u128 *before* multiplying so the product never overflows: two
-        // u64s always fit in u128, so a plain `*` is correct here and a
-        // `checked_mul` would be dead code (its error arm is unreachable). The
-        // only reachable overflow is narrowing the u128 quotient back to u64,
-        // which the `try_from` below catches -- that single guard is the real one.
-        let scaled = u128::from(amount) * u128::from(supply);
-        u64::try_from(scaled / u128::from(aum_before)).map_err(|_| FundError::MathOverflow)?
-    };
-    // Reject a dust deposit that rounds down to zero shares: the quote has already
-    // been (or is about to be) transferred in, so minting zero would take the
-    // investor's tokens for nothing.
+/// Implements the ADR 0001 offset formula
+/// `shares_out = floor(amount * (supply + V_SHARES) / (total_assets + V_ASSETS))`.
+/// The first deposit (`supply == 0 && total_assets == 0`) mints 1:1. Shares round
+/// **down** -- adverse to the depositor, in favor of the pool -- and a zero
+/// result is rejected (`ZeroShares`) so a dust deposit cannot take tokens for
+/// nothing. `supply > 0 && total_assets == 0` is rejected
+/// (`EmptyVaultWithShares`): deposits and withdrawals keep `total_assets` and
+/// `supply` in lockstep, so a zero basis under outstanding shares is corruption,
+/// and with the offset it would otherwise over-mint `amount * (supply + 1)`.
+fn shares_for_deposit(amount: u64, supply: u64, total_assets: u64) -> Result<u64> {
+    require!(
+        supply == 0 || total_assets > 0,
+        FundError::EmptyVaultWithShares
+    );
+
+    // u128 intermediate so the product cannot overflow: `amount <= u64::MAX` and
+    // `supply + V_SHARES <= 2^64`, so their product is at most
+    // `(2^64 - 1) * 2^64 < u128::MAX`. The only reachable overflow is narrowing
+    // the quotient back to u64 (the share count outgrowing u64 as the fund fills),
+    // which the `try_from` catches -- that single guard is the real one.
+    let numerator = u128::from(amount) * (u128::from(supply) + V_SHARES);
+    let denominator = u128::from(total_assets) + V_ASSETS;
+    let shares = u64::try_from(numerator / denominator).map_err(|_| FundError::MathOverflow)?;
+
+    // Reject a dust deposit that rounds down to zero shares: the quote has been
+    // transferred in, so minting zero would take the investor's tokens for
+    // nothing.
     require!(shares > 0, FundError::ZeroShares);
     Ok(shares)
 }
@@ -259,15 +269,10 @@ mod tests {
     }
 
     #[test]
-    fn first_deposit_into_a_donated_vault_still_mints_one_to_one() {
-        // A donation before the first deposit cannot dilute anyone (there are
-        // no holders); rejecting it would let a 1-lamport donation brick the
-        // fund forever.
-        assert_eq!(shares_for_deposit(1_000, 0, 500).unwrap(), 1_000);
-    }
-
-    #[test]
-    fn outstanding_shares_with_an_empty_vault_are_rejected() {
+    fn outstanding_shares_against_zero_total_assets_are_rejected() {
+        // Shares outstanding against zero accounted assets is corruption (deposits
+        // and withdrawals keep total_assets and supply in lockstep); reject rather
+        // than over-mint amount * (supply + 1) shares against the offset.
         assert_eq!(
             shares_for_deposit(1_000, 1_000, 0),
             Err(FundError::EmptyVaultWithShares.into())
@@ -276,19 +281,21 @@ mod tests {
 
     #[test]
     fn proportional_deposit_mints_pro_rata() {
-        // vault holds 1000 quote against 1000 shares; depositing 500 -> 500.
+        // 1000 accounted assets against 1000 shares; depositing 500 ->
+        // floor(500 * (1000 + 1) / (1000 + 1)) = 500.
         assert_eq!(shares_for_deposit(500, 1_000, 1_000).unwrap(), 500);
     }
 
     #[test]
     fn shares_round_down() {
-        // 100 * 3 / 7 = 42.85... -> 42
-        assert_eq!(shares_for_deposit(100, 3, 7).unwrap(), 42);
+        // floor(100 * (2 + 1) / (7 + 1)) = floor(300 / 8) = floor(37.5) = 37.
+        assert_eq!(shares_for_deposit(100, 2, 7).unwrap(), 37);
     }
 
     #[test]
     fn dust_deposit_rounding_to_zero_shares_is_rejected() {
-        // 1 * 1 / 1000 = 0 -> rejected, otherwise tokens are taken for nothing
+        // floor(1 * (1 + 1) / (1000 + 1)) = floor(2 / 1001) = 0 -> rejected,
+        // otherwise the investor's tokens are taken for nothing.
         assert_eq!(
             shares_for_deposit(1, 1, 1_000),
             Err(FundError::ZeroShares.into())

@@ -23,8 +23,6 @@ const INVESTOR_QUOTE_BALANCE: u64 = 1_000_000_000;
 // Anchor custom error codes: 6000 + variant index in FundError.
 const ZERO_DEPOSIT: u32 = 6004;
 const CAPACITY_EXCEEDED: u32 = 6005;
-const ZERO_SHARES: u32 = 6006;
-const EMPTY_VAULT_WITH_SHARES: u32 = 6008;
 // Anchor framework error (anchor-lang 0.31 error.rs):
 // AccountNotAssociatedTokenAccount, raised by the associated_token
 // constraints when the passed account is not the canonical ATA.
@@ -90,44 +88,29 @@ fn deposit_rejects_zero_amount() {
 }
 
 #[test]
-fn deposit_rejects_outstanding_shares_against_an_empty_vault() {
+fn deposit_pricing_is_decoupled_from_an_out_of_band_vault_drain() {
+    // total_assets, not vault.amount, drives pricing, so an out-of-band change to
+    // the vault balance must not change what a later deposit mints. Here the vault
+    // is fully drained while shares stay outstanding: under the old vault.amount
+    // pricing the next deposit saw aum_before == 0 and was rejected; under
+    // total_assets pricing it still mints the fair pro-rata amount. (The drain is
+    // a real loss of custody, a separate concern -- this pins only that the price
+    // ignores vault.amount, the same property that defeats donations.)
     let mut ctx = setup(1_000_000_000_000);
 
     let first = send_deposit(&mut ctx, 100_000_000);
     assert!(first.is_ok(), "first deposit failed: {first:?}");
 
-    // Drain the vault out-of-band while shares remain outstanding -- the
-    // invariant break EmptyVaultWithShares must reject instead of letting
-    // the next depositor buy in at a fake 1:1 price.
     set_token_account(&mut ctx.svm, ctx.vault, ctx.quote_mint, ctx.fund_pda, 0);
 
+    // total_assets is still 100M against 100M shares, so a 50M deposit mints 50M.
     ctx.svm.expire_blockhash();
-    let second = send_deposit(&mut ctx, 100_000_000);
-    let err = second.expect_err("deposit into drained vault must fail");
-    assert_custom_error(&err, EMPTY_VAULT_WITH_SHARES);
-}
-
-#[test]
-fn deposit_rejects_dust_that_rounds_to_zero_shares() {
-    let mut ctx = setup(1_000_000_000_000);
-
-    let first = send_deposit(&mut ctx, 1_000);
-    assert!(first.is_ok(), "first deposit failed: {first:?}");
-
-    // Inflate AUM far past the share supply so a 1-unit deposit computes
-    // floor(1 * 1_000 / 1_000_000_000) == 0 shares.
-    set_token_account(
-        &mut ctx.svm,
-        ctx.vault,
-        ctx.quote_mint,
-        ctx.fund_pda,
-        1_000_000_000,
+    let second = send_deposit(&mut ctx, 50_000_000);
+    assert!(
+        second.is_ok(),
+        "deposit priced off the drained vault instead of total_assets: {second:?}"
     );
-
-    ctx.svm.expire_blockhash();
-    let dust = send_deposit(&mut ctx, 1);
-    let err = dust.expect_err("dust deposit must fail");
-    assert_custom_error(&err, ZERO_SHARES);
+    assert_eq!(unpack_mint(&ctx.svm, &ctx.shares_mint).supply, 150_000_000);
 }
 
 #[test]
@@ -164,12 +147,12 @@ fn deposit_rejects_amount_exceeding_capacity() {
 
 #[test]
 fn deposit_at_exactly_capacity_succeeds() {
-    // The capacity check is `projected_aum <= capacity`, so a deposit that lands
-    // AUM *exactly* on the ceiling must be accepted -- capacity is the inclusive
-    // limit the fund promises LPs, not an exclusive one. This pins the allowed
-    // side of the fence-post: a future tightening of `<=` to `<` would silently
-    // break the promise, and only this green boundary test would catch it (the
-    // rejection test above fires one unit over and would stay green).
+    // The capacity check is `total_assets + amount <= capacity`, so a deposit that
+    // lands accounted AUM *exactly* on the ceiling must be accepted -- capacity is
+    // the inclusive limit the fund promises LPs, not an exclusive one. This pins
+    // the allowed side of the fence-post: a future tightening of `<=` to `<` would
+    // silently break the promise, and only this green boundary test would catch it
+    // (the rejection test above fires one unit over and would stay green).
     let mut ctx = setup(100_000_000);
 
     let result = send_deposit(&mut ctx, 100_000_000);
