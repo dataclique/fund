@@ -2,97 +2,134 @@
 
 This file provides guidance to coding agents working in this repository.
 (References written as `@docs/<file>` are agent-tooling import directives:
-supported agents load the referenced repo-relative file together with this
-one. Read them as plain repo paths.)
+supported agents load the referenced repo-relative file together with this one.
+Read them as plain repo paths.)
 
 ## Practices that apply repo-wide
 
 - **"Document" always means in this repo.** Notes, learnings, conventions,
   rationale, and rules belong in tracked markdown files (this file,
-  `programs/fund/README.md`, `programs/fund/SPEC.md`, ADRs under `adrs/`, or
-  a dedicated doc). Agent memory, scratchpads, or `.tmp/` files do **not**
-  count as documentation — the next reader (human or agent) will not see
-  them.
+  `programs/fund/README.md`, `programs/fund/SPEC.md`, ADRs under `adrs/`, or a
+  dedicated doc). Agent memory, scratchpads, or `.tmp/` files do **not** count
+  as documentation — the next reader (human or agent) will not see them.
 - **Non-trivial shell logic lives in `./scripts/<name>.nu` with a paired
   `./scripts/<name>.test.nu`.** "Non-trivial" is anything beyond ~3 lines, any
-  command with non-obvious quoting/escaping, or any one-shot probe that might
-  be useful again. The test suite must run as part of the script's nix
-  derivation (`checkPhase`) so a broken script fails the build. Do not write
-  inline bash inside `flake.nix` strings or as `Bash` tool commands for
-  anything more than read-only one-liners (`ls`, `git status`, `cargo check`).
+  command with non-obvious quoting/escaping, or any one-shot probe that might be
+  useful again. The test suite must run as part of the script's nix derivation
+  (`checkPhase`) so a broken script fails the build. Do not write inline bash
+  inside `flake.nix` strings or as `Bash` tool commands for anything more than
+  read-only one-liners (`ls`, `git status`, `cargo check`).
+- **Comments and docs explain _why_, and every module and item is documented.**
+  This is production financial-infrastructure code; the next reader (human or
+  agent) must be able to reconstruct _intent_, not just behavior. Three hard
+  requirements:
+  - **Motivation, never narration.** A comment states the _reason_ a decision
+    was made — the constraint, tradeoff, invariant, or gotcha behind it — not
+    what the code literally does. Not `// calculate projected AUM`, but
+    `// Enforce
+    capacity against *projected* post-deposit AUM so this deposit cannot push the
+    fund past its ceiling; classic SPL Token has no transfer fee, so the vault
+    receives exactly amount.`
+    If a comment would just restate the code, delete it; if a decision is
+    non-obvious, it MUST carry the why (the binding constraint, the attack it
+    defends, the ordering it depends on, the case it handles).
+  - **Module-level docstrings.** Every module carries a `//!` block at the top
+    of its `.rs` file stating the module's role, the model it implements, and
+    the non-obvious invariants or ordering it relies on.
+  - **Item docstrings.** Every public item — and every non-trivial private one
+    (instruction handlers, `#[derive(Accounts)]` structs and their fields,
+    pricing/accounting helpers) — carries a `///` docstring describing its
+    purpose and any behavior a caller must know (failure modes, rounding
+    direction, ordering requirements, security constraints).
+
+  This _sharpens_ the global "no useless what-comments" rule, it does not relax
+  it: bare what-comments are still banned. The bar is that anything worth a
+  comment must explain motivation, and the structural docs (module-level and
+  per-item) are mandatory, not optional.
 
 ## Feature workflow
 
-Every new feature of the on-chain program follows the same loop. Do not
-skip steps or merge phases — each step exists to catch a different class
-of mistake.
+Every new feature of the on-chain program follows the same loop. Do not skip
+steps or merge phases — each step exists to catch a different class of mistake.
 
-1. **Spec the feature in `programs/fund/SPEC.md`.** Add a new section
-   describing the model, instruction signature(s), accounts touched,
-   error conditions, and a mermaid sequence diagram. Keep the spec
-   incremental — only introduce concepts the current feature needs;
-   list everything else under "Not yet specified". If the spec
-   introduces a non-obvious design choice (share-burn timing, fee
-   accrual model, etc.), call it out explicitly so the next reader can
-   tell intent from accident.
-2. **Update the interface** — the Rust types, account structs, and
-   instruction handler signatures — to match the spec. Do **not**
-   implement the logic yet; the handler body should compile but be a
-   stub (`unimplemented!()`, `todo!()`, or just enough to return
-   `Ok(())`). This step is purely about shape: structs, accounts,
-   constraints, error variants.
+1. **Spec the feature in `programs/fund/SPEC.md`.** Add a new section describing
+   the model, instruction signature(s), accounts touched, error conditions, and
+   a mermaid sequence diagram. Keep the spec incremental — only introduce
+   concepts the current feature needs; list everything else under "Not yet
+   specified". If the spec introduces a non-obvious design choice (share-burn
+   timing, fee accrual model, etc.), call it out explicitly so the next reader
+   can tell intent from accident.
+2. **Update the interface** — the Rust types, account structs, and instruction
+   handler signatures — to match the spec. Do **not** implement the logic yet;
+   the handler body should compile but be a stub (`unimplemented!()`, `todo!()`,
+   or just enough to return `Ok(())`). This step is purely about shape: structs,
+   accounts, constraints, error variants.
 3. **Write a failing test.** Add a `programs/fund/tests/*.rs` litesvm
-   integration test (see the "Test architecture" section below) that
-   exercises the feature end-to-end against a freshly compiled
-   `fund.so`. Run `anchor build`, then run the test and confirm it
-   actually fails for the reason you expect (`unimplemented!` panic,
-   wrong balance, wrong account state — not "fails to compile" or
-   "fails on setup unrelated to the feature").
-4. **Implement** the handler body until the test passes. Don't change
-   the test to make it pass unless the spec changed; if the spec needs
-   to change, go back to step 1.
-5. **Confirm the test passes** (and any previously-passing tests still
-   do — run `cargo test --workspace`), and **walk every new or modified
+   integration test (see the "Test architecture" section below) that exercises
+   the feature end-to-end against a freshly compiled `fund.so`. Run
+   `anchor build`, then run the test and confirm it actually fails for the
+   reason you expect (`unimplemented!` panic, wrong balance, wrong account state
+   — not "fails to compile" or "fails on setup unrelated to the feature").
+4. **Implement** the handler body until the test passes. Don't change the test
+   to make it pass unless the spec changed; if the spec needs to change, go back
+   to step 1.
+5. **Confirm the test passes** (and any previously-passing tests still do — run
+   `cargo test --workspace`), and **walk every new or modified
    `#[derive(Accounts)]` struct through the checklist in
-   @docs/sealevel-attacks.md** — the security review is a hard gate,
-   not a post-merge follow-up (see "Security" below).
+   @docs/sealevel-attacks.md** — the security review is a hard gate, not a
+   post-merge follow-up (see "Security" below).
 6. **Commit and push**, then move to the next feature.
 
 **A feature spans at least two PRs (sometimes more), as a stack:**
 
 - **Contract PR** — steps 1-3: the SPEC section, the interface (stubbed
-  handlers/account structs/error variants), and the failing `litesvm`
-  test(s). This PR's CI is **red on purpose** — the failing tests are the
-  executable contract for the behavior the feature must exhibit.
-- **Implementation PR** — step 4, stacked on the contract PR: the handler
-  bodies that turn the red tests green. CI passes; the green run proves the
+  handlers/account structs/error variants), and the failing `litesvm` test(s).
+  This PR's CI is **red on purpose** — the failing tests are the executable
+  contract for the behavior the feature must exhibit.
+- **Implementation PR** — step 4, stacked on the contract PR: the handler bodies
+  that turn the red tests green. CI passes; the green run proves the
   implementation fulfills exactly the contract the tests defined.
 
 Split further when a spec or implementation is large (one contract PR, then
-several implementation PRs). A preliminary docs-only PR (the SPEC section
-plus supporting reference docs) may precede the contract PR when the spec
-deserves standalone review; the stubbed interface and failing tests must
-still land as a red contract PR that the implementation PR stacks on.
-**Never collapse a feature into a single tests-plus-implementation PR** —
-the whole point is that the red-to-green transition is visible in CI and
-reviewable as distinct steps. Smart-contract bugs are catastrophic; this
-split is a hard gate, not a preference.
+several implementation PRs). A preliminary docs-only PR (the SPEC section plus
+supporting reference docs) may precede the contract PR when the spec deserves
+standalone review; the stubbed interface and failing tests must still land as a
+red contract PR that the implementation PR stacks on. **Never collapse a feature
+into a single tests-plus-implementation PR** — the whole point is that the
+red-to-green transition is visible in CI and reviewable as distinct steps.
+Smart-contract bugs are catastrophic; this split is a hard gate, not a
+preference.
 
-When you (the agent) are working on a feature, surface which step
-you're in before doing it ("specifying X next", "writing the failing
-test for X", etc.) so the user can intercept at the right point.
+When you (the agent) are working on a feature, surface which step you're in
+before doing it ("specifying X next", "writing the failing test for X", etc.) so
+the user can intercept at the right point.
 
 ## Project
 
-Anchor-based Solana program named `fund`. Single on-chain program, Cargo workspace, with a TypeScript app/migrations side managed via bun.
+Anchor-based Solana program named `fund`. Single on-chain program, Cargo
+workspace, with a TypeScript app/migrations side managed via bun.
 
-This repo is split off from the main monorepo specifically because Solana tooling isn't compatible with everything we use over there. The standing rule that follows from that: **always succumb to whatever Solana tooling wants from us.** Match its version pins, directory layout, env-var conventions, and config defaults rather than fighting them — concretely, if `cargo-build-sbf` expects platform-tools at `~/.cache/solana/v<X>/`, pin v<X> in the flake; don't pick a different version and try to make Solana like it.
+This repo is split off from the main monorepo specifically because Solana
+tooling isn't compatible with everything we use over there. The standing rule
+that follows from that: **always succumb to whatever Solana tooling wants from
+us.** Match its version pins, directory layout, env-var conventions, and config
+defaults rather than fighting them — concretely, if `cargo-build-sbf` expects
+platform-tools at `~/.cache/solana/v<X>/`, pin v<X> in the flake; don't pick a
+different version and try to make Solana like it.
 
-- Program ID: `8FUTArRdDgGDTYbnBMrzB7mBTwLrYpJDTzWY4d62GpCD` (declared both in `programs/fund/src/lib.rs` and `Anchor.toml`'s `[programs.localnet]`, and must match `target/deploy/fund-keypair.json` — keep all three in sync via `anchor keys sync`)
+- Program ID: `8FUTArRdDgGDTYbnBMrzB7mBTwLrYpJDTzWY4d62GpCD` (declared both in
+  `programs/fund/src/lib.rs` and `Anchor.toml`'s `[programs.localnet]`, and must
+  match `target/deploy/fund-keypair.json` — keep all three in sync via
+  `anchor keys sync`)
 - Anchor toolchain: `package_manager = "bun"` (not yarn/npm)
 - Rust toolchain pinned via `rust-toolchain.toml` (1.95.0)
-- Dev shell provided by Nix flake + devenv (`flake.nix`); `.envrc` loads it via direnv
-- `flake.nix` exposes a `cargo-build-sbf` shim that pre-fetches Solana platform-tools (version pinned to match what `solana-cli` from nixpkgs expects) and symlinks them into `.devenv/sbf-home/.cache/solana/v<X>/platform-tools` so `anchor build` runs offline (currently `aarch64-darwin` only)
+- Dev shell provided by Nix flake + devenv (`flake.nix`); `.envrc` loads it via
+  direnv
+- `flake.nix` exposes a `cargo-build-sbf` shim that pre-fetches Solana
+  platform-tools (version pinned to match what `solana-cli` from nixpkgs
+  expects) and symlinks them into
+  `.devenv/sbf-home/.cache/solana/v<X>/platform-tools` so `anchor build` runs
+  offline (currently `aarch64-darwin` only)
 
 ## Common commands
 
@@ -114,58 +151,78 @@ bun run lint:fix
 nix develop
 ```
 
-Pre-commit hooks (via `git-hooks.nix`; the authoritative list is `hooks.nix`) run `nil`, `nixfmt`, `statix`, `deadnix`, `cargo fmt`, `prettier`, and `taplo`. Run `nix flake check` to invoke them outside a commit.
+Pre-commit hooks (via `git-hooks.nix`; the authoritative list is `hooks.nix`)
+run `nil`, `nixfmt`, `statix`, `deadnix`, `cargo fmt`, `prettier`, and `taplo`.
+Run `nix flake check` to invoke them outside a commit.
 
 ## Version control (GitButler)
 
 This repo uses the GitButler CLI (`but`) for all version-control write
 operations (commits, branches, push). Conventions:
 
-- **Pre-commit hooks:** `but commit` runs them. If you must `but amend`/`but rub`
-  (which skip hooks), run `nix flake check` afterward and fold in any fixes
-  before pushing.
+- **Pre-commit hooks:** `but commit` runs them. If you must
+  `but amend`/`but rub` (which skip hooks), run `nix flake check` afterward and
+  fold in any fixes before pushing.
 - **Commit messages:** lowercase; use conventional prefixes where they fit —
-  `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`. Explain _why_ in
-  the body. Never add "Generated with ..." or co-author trailers.
+  `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`. Explain _why_ in the
+  body. Never add "Generated with ..." or co-author trailers.
 - **Branch names:** `<type>/<kebab-description>`. Always pass an explicit name
   to `but branch new`.
 
 The dev shell's generated gitbutler skill (`.claude/skills/gitbutler`, via the
-but.nix `devenvModule` in `flake.nix`) points here — this section is the
-source of truth.
+but.nix `devenvModule` in `flake.nix`) points here — this section is the source
+of truth.
 
 ## Test architecture (important)
 
-Tests do **not** use `anchor test`. They use [`litesvm`](https://docs.rs/litesvm) directly from Rust integration tests under `programs/fund/tests/`.
+Tests do **not** use `anchor test`. They use
+[`litesvm`](https://docs.rs/litesvm) directly from Rust integration tests under
+`programs/fund/tests/`.
 
 The pattern (`tests/test_create_fund.rs`):
 
-1. `include_bytes!("../../../target/deploy/fund.so")` — pulls the compiled BPF binary at compile time.
-2. `LiteSVM::new()` + `svm.add_program(program_id, bytes)` — loads it into an in-memory SVM.
-3. Construct an `Instruction` using the Anchor-generated `fund::instruction::*` (data) and `fund::accounts::*` (account metas) types, then send a `VersionedTransaction`.
+1. `include_bytes!("../../../target/deploy/fund.so")` — pulls the compiled BPF
+   binary at compile time.
+2. `LiteSVM::new()` + `svm.add_program(program_id, bytes)` — loads it into an
+   in-memory SVM.
+3. Construct an `Instruction` using the Anchor-generated `fund::instruction::*`
+   (data) and `fund::accounts::*` (account metas) types, then send a
+   `VersionedTransaction`.
 
-**Consequence: `anchor build` must run before `cargo test`.** Without `target/deploy/fund.so`, the integration test fails to compile. CI/local workflows should chain build → test.
+**Consequence: `anchor build` must run before `cargo test`.** Without
+`target/deploy/fund.so`, the integration test fails to compile. CI/local
+workflows should chain build → test.
 
 ## Code layout
 
 `programs/fund/src/`:
 
-- `lib.rs` — `declare_id!` and the `#[program] mod fund { ... }` block. Each public program function is a thin delegate to `instructions::<name>::handler`.
-- `instructions/` + `instructions.rs` — one file per instruction; the parent module re-exports with `pub use <name>::*` so `Initialize` (account context) and `handler` are reachable as `fund::Initialize` / `fund::initialize::handler`.
+- `lib.rs` — `declare_id!` and the `#[program] mod fund { ... }` block. Each
+  public program function is a thin delegate to `instructions::<name>::handler`.
+- `instructions/` + `instructions.rs` — one file per instruction; the parent
+  module re-exports with `pub use <name>::*` so `CreateFund` (account context)
+  and Anchor's generated client-accounts modules reach the crate root. Every
+  module's `handler` collides in the glob (expected, lint-allowed) — handlers
+  are always called module-qualified (`<name>::handler`).
 - `state.rs` — account state structs (currently empty).
 - `constants.rs`, `error.rs` — shared constants and `#[error_code]` enums.
 
 When adding a new instruction (code-layout mechanics only — the process,
-including spec, failing test, and security review, is the "Feature
-workflow" above):
+including spec, failing test, and security review, is the "Feature workflow"
+above):
 
-1. Create `programs/fund/src/instructions/<name>.rs` with `#[derive(Accounts)] pub struct <Name>` and `pub fn handler(...)`.
-2. Add `pub mod <name>; pub use <name>::*;` to `instructions.rs`.
-3. Add a thin wrapper inside `#[program] mod fund` in `lib.rs` that calls `<name>::handler(ctx, ...)`.
+1. Create `programs/fund/src/instructions/<name>.rs` with
+   `#[derive(Accounts)] pub struct <Name>` and `pub fn handler(...)`.
+2. Add `pub mod <name>; pub use <name>::*;` (with
+   `#[allow(ambiguous_glob_reexports)]`) to `instructions.rs`.
+3. Add a thin wrapper inside `#[program] mod fund` in `lib.rs` that calls
+   `<name>::handler(ctx, ...)`.
 
 ## Wallet / cluster
 
-`Anchor.toml` points provider at `localnet` with wallet `~/.config/solana/id.json`. `litesvm` tests don't touch this — only `anchor deploy` / `anchor migrate` / on-chain interactions do.
+`Anchor.toml` points provider at `localnet` with wallet
+`~/.config/solana/id.json`. `litesvm` tests don't touch this — only
+`anchor deploy` / `anchor migrate` / on-chain interactions do.
 
 ## SBF toolchain (the `cargo-build-sbf` shim)
 
