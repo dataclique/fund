@@ -1,7 +1,7 @@
 //! Deposit: an investor swaps quote tokens for freshly-minted fund shares.
 //!
-//! The steps are deliberately ordered — price, move quote in, then mint shares
-//! out — so the share price is struck against the fund's state *before* the
+//! The steps are deliberately ordered -- price, move quote in, then mint shares
+//! out -- so the share price is struck against the fund's state *before* the
 //! inbound transfer changes it. The depositor's own `amount` must not be counted
 //! in the basis it is buying into: pricing after the transfer would put `amount`
 //! in the denominator of the share formula and mint them too *few* shares,
@@ -9,12 +9,12 @@
 //!
 //! ## Pricing basis (v0, and why it is not yet ADR 0001)
 //!
-//! Shares are priced off `vault.amount` — the raw SPL balance of the vault. That
+//! Shares are priced off `vault.amount` -- the raw SPL balance of the vault. That
 //! is the donation-manipulable basis ADR 0001 (donation-resistant share pricing)
 //! exists to replace with an internally-tracked `Fund.total_assets`. We ship the
 //! vault-balance basis for v0 anyway because `total_assets` requires a `Fund`
 //! layout change plus a state update on every value-moving instruction (the
-//! ADR's Option B) — that is its own feature, sequenced separately. The residual
+//! ADR's Option B) -- that is its own feature, sequenced separately. The residual
 //! is the ERC-4626 first-depositor inflation attack, **accepted for v0 and
 //! recorded in SPEC.md**, not a property this code claims to defend. Do not
 //! describe this instruction as donation-resistant until the ADR 0001 migration
@@ -69,7 +69,7 @@ pub struct Deposit<'info> {
     )]
     pub vault: Account<'info, TokenAccount>,
 
-    /// The fund's shares mint, with the fund PDA as the *sole* mint authority — so
+    /// The fund's shares mint, with the fund PDA as the *sole* mint authority -- so
     /// the program is the only thing that can mint shares and supply tracks
     /// deposits exactly (no out-of-band minting can dilute holders).
     #[account(
@@ -94,7 +94,7 @@ pub struct Deposit<'info> {
     /// the documented footgun: the `associated_token` constraints pin any
     /// pre-existing account to the canonical ATA for (investor, shares_mint), so
     /// an attacker cannot substitute an account with a different mint or
-    /// authority — the only accepted pre-existing state is the investor's own
+    /// authority -- the only accepted pre-existing state is the investor's own
     /// legitimate ATA. We init-if-needed (rather than require it already exists)
     /// so a first-time depositor is not forced into a separate ATA-creation
     /// transaction before they can deposit.
@@ -121,7 +121,7 @@ pub struct Deposit<'info> {
 /// arithmetic overflow, or a deposit so small it would round to zero shares.
 pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     // Reject zero up front. A zero deposit is never legitimate and, left to flow
-    // through, would still pay the `init_if_needed` rent for a no-op — failing
+    // through, would still pay the `init_if_needed` rent for a no-op -- failing
     // immediately is strictly cheaper for the caller and keeps the happy path
     // free of a degenerate case.
     require!(amount > 0, FundError::ZeroDeposit);
@@ -130,7 +130,7 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     // depositor's own `amount` is not counted in the basis it is buying into.
     // Reading it after would put `amount` in the denominator of the share
     // formula and mint too few shares, diluting the incoming depositor. (v0
-    // basis: this is the donation-manipulable `vault.amount` — see the module
+    // basis: this is the donation-manipulable `vault.amount` -- see the module
     // docs; ADR 0001 replaces it with `Fund.total_assets`.)
     let aum_before = ctx.accounts.vault.amount;
 
@@ -139,7 +139,7 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     // requested `amount`: the classic SPL Token program has no transfer fee, so
     // the vault receives exactly `amount` and projected AUM equals actual. (A
     // Token-2022 mint with a transfer-fee extension would land *less* than
-    // `amount` in the vault, breaking that equality — but `token_program` is
+    // `amount` in the vault, breaking that equality -- but `token_program` is
     // pinned to classic Token above, so that case cannot arise here. Revisit this
     // if Token-2022 support is ever added.)
     let projected_aum = aum_before
@@ -151,7 +151,7 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     );
 
     // Args in order: quote deposited, shares outstanding, quote AUM before. All
-    // three are bare `u64`, so the compiler cannot catch a transposed call — keep
+    // three are bare `u64`, so the compiler cannot catch a transposed call -- keep
     // this site and the signature in lockstep. (Domain newtypes that would make a
     // swap a type error are tracked for the ADR 0001 pricing rewrite, which
     // changes this signature anyway.)
@@ -159,7 +159,7 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
 
     // Move the quote in before minting. If the mint below fails, the whole
     // transaction reverts and this transfer reverts with it (Solana transactions
-    // are atomic — a propagated CPI error rolls back every account change), so
+    // are atomic -- a propagated CPI error rolls back every account change), so
     // there is never a window where the fund holds the quote without having
     // minted the matching shares.
     token::transfer(
@@ -187,7 +187,7 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
 
     // Mint the shares, signed by the fund PDA (the shares mint's sole authority).
     // The seeds reconstruct that PDA so the *program*, not any caller, authorizes
-    // the mint — re-deriving from the stored canonical bump keeps it the same
+    // the mint -- re-deriving from the stored canonical bump keeps it the same
     // address the `mint::authority = fund` constraint validated.
     let bump = ctx.accounts.fund.fund_bump;
     let manager = ctx.accounts.fund.manager;
@@ -212,15 +212,15 @@ pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
 /// Shares minted for a deposit of `amount` quote tokens into a vault that holds
 /// `aum_before` quote and has `supply` shares outstanding.
 ///
-/// The first deposit (`supply == 0`) anchors share price at 1:1 — any quote
+/// The first deposit (`supply == 0`) anchors share price at 1:1 -- any quote
 /// donated into the vault beforehand simply accrues to the first depositor,
 /// who dilutes no one. Outstanding shares against an empty vault is an
 /// invariant break (it would let a depositor buy in at a fake 1:1 price and
 /// dilute every holder), so it is rejected rather than priced. Otherwise
-/// shares are pro-rata to the pre-deposit AUM, rounded down — and a zero
+/// shares are pro-rata to the pre-deposit AUM, rounded down -- and a zero
 /// result is rejected so a dust deposit can't take tokens for no shares.
 ///
-/// This whole function — including the `supply == 0` special case — is
+/// This whole function -- including the `supply == 0` special case -- is
 /// superseded by the ADR 0001 virtual-offset formula over `total_assets`
 /// once that migration lands (see adrs/0001-donation-resistant-share-pricing.md
 /// and the SPEC deposit section).
@@ -238,7 +238,7 @@ fn shares_for_deposit(amount: u64, supply: u64, aum_before: u64) -> Result<u64> 
         // u64s always fit in u128, so a plain `*` is correct here and a
         // `checked_mul` would be dead code (its error arm is unreachable). The
         // only reachable overflow is narrowing the u128 quotient back to u64,
-        // which the `try_from` below catches — that single guard is the real one.
+        // which the `try_from` below catches -- that single guard is the real one.
         let scaled = u128::from(amount) * u128::from(supply);
         u64::try_from(scaled / u128::from(aum_before)).map_err(|_| FundError::MathOverflow)?
     };

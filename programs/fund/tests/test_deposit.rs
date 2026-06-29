@@ -73,7 +73,7 @@ fn second_deposit_mints_pro_rata_into_the_existing_ata() {
     assert_eq!(vault_state.amount, 150_000_000);
 
     // The shares must land in the investor's pre-existing ATA (the
-    // init_if_needed exists-path), not just inflate the aggregate supply — a
+    // init_if_needed exists-path), not just inflate the aggregate supply -- a
     // wrong-ATA-derivation bug would leave supply correct but this assertion
     // would catch it.
     let investor_shares = get_associated_token_address(&ctx.investor.pubkey(), &ctx.shares_mint);
@@ -96,7 +96,7 @@ fn deposit_rejects_outstanding_shares_against_an_empty_vault() {
     let first = send_deposit(&mut ctx, 100_000_000);
     assert!(first.is_ok(), "first deposit failed: {first:?}");
 
-    // Drain the vault out-of-band while shares remain outstanding — the
+    // Drain the vault out-of-band while shares remain outstanding -- the
     // invariant break EmptyVaultWithShares must reject instead of letting
     // the next depositor buy in at a fake 1:1 price.
     set_token_account(&mut ctx.svm, ctx.vault, ctx.quote_mint, ctx.fund_pda, 0);
@@ -136,7 +136,7 @@ fn deposit_rejects_a_substituted_non_canonical_shares_account() {
 
     // A valid-looking spl-token account (right mint, right owner) at a
     // NON-canonical address. The associated_token constraints must reject it
-    // on the init_if_needed exists-path — this pins the safety claim the
+    // on the init_if_needed exists-path -- this pins the safety claim the
     // Deposit accounts struct documents.
     let fake_shares_account = Pubkey::new_unique();
     set_token_account(
@@ -165,7 +165,7 @@ fn deposit_rejects_amount_exceeding_capacity() {
 #[test]
 fn deposit_at_exactly_capacity_succeeds() {
     // The capacity check is `projected_aum <= capacity`, so a deposit that lands
-    // AUM *exactly* on the ceiling must be accepted — capacity is the inclusive
+    // AUM *exactly* on the ceiling must be accepted -- capacity is the inclusive
     // limit the fund promises LPs, not an exclusive one. This pins the allowed
     // side of the fence-post: a future tightening of `<=` to `<` would silently
     // break the promise, and only this green boundary test would catch it (the
