@@ -14,7 +14,7 @@ cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
-idl-build = ["anchor-lang/idl-build"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 anchor-debug = []
 custom-heap = []
 custom-panic = []
@@ -22,10 +22,12 @@ custom-panic = []
 
 [dependencies]
 anchor-lang = "0.31"
+anchor-spl = "0.31"
 
 [dev-dependencies]
 litesvm = "0.6"
 solana-sdk = "2"
+proptest = "1"
 
 
 [lints.rust]
